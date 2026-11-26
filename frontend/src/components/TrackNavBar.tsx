@@ -19,6 +19,16 @@ export function TrackNavBar({
   const prevTrack = currentIndex > 0 ? tracks[currentIndex - 1] : null;
   const nextTrack = currentIndex < tracks.length - 1 ? tracks[currentIndex + 1] : null;
 
+  // Single-line sliding window of 13 dots (active dot stays centered from track 7 until the last 7 tracks)
+  const WINDOW_SIZE = 13;
+  const HALF_WINDOW = Math.floor(WINDOW_SIZE / 2); // 6 -> 7th dot is exact center
+  const maxStart = Math.max(0, tracks.length - WINDOW_SIZE);
+  const windowStart = Math.max(0, Math.min(currentIndex - HALF_WINDOW, maxStart));
+  const windowEnd = Math.min(tracks.length, windowStart + WINDOW_SIZE);
+  const visibleTracks = tracks.slice(windowStart, windowEnd);
+  const hasMoreLeft = windowStart > 0;
+  const hasMoreRight = windowEnd < tracks.length;
+
   return (
     <nav
       aria-label="Navegación entre canciones"
@@ -50,16 +60,26 @@ export function TrackNavBar({
           <span className="text-muted-foreground">{tracks.length}</span>
         </div>
 
-        <div className="flex max-w-[240px] flex-wrap items-center justify-center gap-1">
-          {tracks.slice(0, 36).map((t, idx) => {
+        <div className="flex flex-nowrap items-center justify-center gap-1.5">
+          {visibleTracks.map((t, offset) => {
+            const idx = windowStart + offset;
             const isActive = idx === currentIndex;
-            const dotClass = isActive
-              ? "h-1.5 w-5 bg-primary"
+            const isEdgeFade =
+              !isActive &&
+              ((offset === 0 && hasMoreLeft) ||
+                (offset === visibleTracks.length - 1 && hasMoreRight));
+            const sizeClass = isActive
+              ? "h-1.5 w-5"
+              : isEdgeFade
+                ? "size-1"
+                : "size-1.5";
+            const colorClass = isActive
+              ? "bg-primary"
               : t.status === "error"
-                ? "h-1.5 w-1.5 bg-destructive"
+                ? "bg-destructive"
                 : t.status === "ready" || t.status === "downloaded"
-                  ? "h-1.5 w-1.5 bg-foreground/50"
-                  : "h-1.5 w-1.5 bg-foreground/15";
+                  ? "bg-foreground/50"
+                  : "bg-foreground/20";
 
             return (
               <button
@@ -68,15 +88,10 @@ export function TrackNavBar({
                 onClick={() => onSelectIndex(idx)}
                 title={`${idx + 1}. ${t.title} (${t.status})`}
                 aria-label={`Ir a canción ${idx + 1}: ${t.title}`}
-                className={`cursor-pointer rounded-full transition-all hover:opacity-90 ${dotClass}`}
+                className={`shrink-0 cursor-pointer rounded-full transition-all duration-150 hover:opacity-90 ${sizeClass} ${colorClass}`}
               />
             );
           })}
-          {tracks.length > 36 && (
-            <span className="font-mono text-[10px] text-muted-foreground">
-              +{tracks.length - 36}
-            </span>
-          )}
         </div>
 
         <span className="text-[11px] text-muted-foreground">

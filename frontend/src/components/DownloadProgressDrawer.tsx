@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, Download, FolderArchive, Loader2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, FolderArchive, Loader2, X } from "lucide-react";
 import { resolveApiUrl } from "../services/api";
 import type { DownloadJobResponse } from "../types/music";
 
@@ -97,30 +97,19 @@ export function DownloadProgressDrawer({
         />
       </div>
 
-      {/* Generated MP3 Links */}
-      {job.files.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {job.files.map((f) => (
-            <a
-              key={f.track_id}
-              href={resolveApiUrl(f.download_url)}
-              download={f.file_name}
-              className="inline-flex items-center gap-1 rounded-lg border border-border bg-background/60 px-2.5 py-1 font-mono text-[11px] text-foreground transition-colors hover:border-primary/50 hover:text-primary"
-            >
-              <Download className="size-3" />
-              <span>{f.file_name}</span>
-            </a>
-          ))}
-        </div>
-      )}
-
-      {/* Errors */}
+      {/* Errors only (never flood UI with per-file buttons on large playlists) */}
       {job.errors.length > 0 && (
-        <div className="mt-2.5 space-y-1">
+        <div className="mt-3 max-h-40 space-y-1.5 overflow-y-auto pr-1">
           {job.errors.map((err) => (
-            <p key={err.track_id} className="text-xs text-destructive">
-              Error en «{err.title}»: {err.error}
-            </p>
+            <div
+              key={err.track_id}
+              className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
+            >
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+              <p className="min-w-0 flex-1 break-words">
+                <span className="font-medium">{err.title}:</span> {err.error}
+              </p>
+            </div>
           ))}
         </div>
       )}

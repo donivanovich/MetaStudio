@@ -393,3 +393,12 @@ Fase 11 implementada, verificada en contenedores vivos y lista en `main`.
 - Reemplazado el indicador estático del proveedor activo a la derecha de los encabezados (*Nombre de la canción*, *Artistas*, *Álbum*) por un selector desplegable personalizado (`FieldSourceSelect`) integrado con el diseño oscuro de MetaStudio, con ítems clicables (`SelectItem`) que muestran cada fuente y su vista previa normalizada.
 - Eliminada la ayuda redundante *"Separados por coma y espacio · ej. Bad Bunny, Feid"* debajo del campo *Artistas*.
 - Cambiado el botón principal de cabecera de *"Analizar"* / *"Analizando..."* a *"Extraer"* / *"Extrayendo..."*.
+
+---
+
+## 2026-11-26 — Fase 15: Scrollbar tematizado, indicador deslizante de 13 puntos y panel de descarga optimizado para playlists grandes
+
+### Implementación
+- Personalizado el scrollbar global en `frontend/src/index.css` con fondo del mismo color que la web (`--background`), barra deslizante (`thumb`) y flechas (`::-webkit-scrollbar-button:single-button`) en el verde lima de contraste (`--primary`), con fallback `scrollbar-color` para Firefox.
+- Rediseñado el contador visual de puntos en `frontend/src/components/TrackNavBar.tsx` como ventana deslizante en una única línea de 13 círculos: desde la canción 1 hasta la 7 el punto activo avanza al centro, permanece centrado en toda la playlist y se desplaza hacia la derecha al llegar a las últimas 7 canciones.
+- Eliminados los botones por archivo descargado en `frontend/src/components/DownloadProgressDrawer.tsx` (que generaban cientos de botones en playlists grandes de 300+ canciones), mostrando únicamente el botón de descarga del ZIP y un listado compacto con scroll únicamente para las canciones que hayan tenido error.
