@@ -360,3 +360,26 @@ Fase 11 implementada, verificada en contenedores vivos y lista en `main`.
 - `frontend/src/components/MetadataEditorColumn.tsx`
 - `frontend/src/components/SourcesArtworkColumn.tsx`
 - `docs/DEVELOPMENT_LOG.md`
+
+---
+
+## 2026-11-26 — Fase 13: Proveedores predeterminados (Álbum YT Music, Artistas Apple Music) y extracción pública Spotify oEmbed
+
+### Implementación
+- Priorizado **YouTube Music / YouTube** como proveedor predeterminado del nombre del **álbum** en `backend/services/metadata/aggregator.py` y `backend/services/track_processor.py` (y ordenado primero en el selector de álbum de `MetadataEditorColumn.tsx`).
+- Priorizado **Apple Music** como proveedor predeterminado de **artistas** en `backend/services/metadata/scoring.py` y `aggregator.py` (y ordenado primero en el selector de artistas de `MetadataEditorColumn.tsx`), manteniendo el fallback multi-fuente cuando Apple Music no coincida.
+- Añadida extracción oficial mediante **Spotify oEmbed** (`fetch_spotify_oembed` en `backend/services/metadata/providers.py` e integrado en `backend/api/sessions.py`) para obtener título y carátula oficial de Spotify sin requerir Premium en enlaces `open.spotify.com/...`, junto con estado transparente de la API de Spotify (`spotify_status` en `/api/v1/health` y aviso discreto en `SourcesArtworkColumn.tsx` cuando Spotify Web API devuelve `403 Active premium subscription required`).
+
+### Archivos modificados
+- `backend/services/metadata/providers.py`
+- `backend/services/metadata/scoring.py`
+- `backend/services/metadata/aggregator.py`
+- `backend/services/track_processor.py`
+- `backend/api/sessions.py`
+- `backend/main.py`
+- `backend/tests/test_metadata_normalizer.py`
+- `frontend/src/types/music.ts`
+- `frontend/src/App.tsx`
+- `frontend/src/components/MetadataEditorColumn.tsx`
+- `frontend/src/components/SourcesArtworkColumn.tsx`
+- `docs/DEVELOPMENT_LOG.md`

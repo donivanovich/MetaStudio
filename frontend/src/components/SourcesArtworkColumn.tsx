@@ -11,6 +11,7 @@ interface SourcesArtworkColumnProps {
   onRefreshSearch: () => void;
   refreshing: boolean;
   uploading: boolean;
+  spotifyNotice?: string | null;
 }
 
 export function SourcesArtworkColumn({
@@ -21,6 +22,7 @@ export function SourcesArtworkColumn({
   onRefreshSearch,
   refreshing,
   uploading,
+  spotifyNotice,
 }: SourcesArtworkColumnProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [activeSource, setActiveSource] = useState<string>("");
@@ -149,6 +151,12 @@ export function SourcesArtworkColumn({
           <div className="rounded-xl border border-dashed border-border bg-background/30 p-3 text-xs text-muted-foreground">
             Sin coincidencias externas todavía. Edita título/artista y pulsa actualizar para buscar.
           </div>
+        )}
+
+        {spotifyNotice && !track.metadata_candidates.some((c) => c.source === "Spotify") && (
+          <p className="mt-2.5 rounded-lg border border-border/70 bg-background/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground/80">Spotify:</span> {spotifyNotice}
+          </p>
         )}
       </div>
 

@@ -169,38 +169,46 @@ def rank_and_combine_candidates(
         combined["title"] = top.title
         provenance["title"] = top.source
 
-        # Prefer the candidate with the most complete collaborating artists list among matching sources,
-        # and merge missing collaborators confirmed by other high-confidence matches of the same track
+        # Default artists provider preference: Apple Music first whenever it is a reliable match
+        # of the same track; otherwise pick the richest reliable provider and merge collaborators.
         same_track_reliable = [
             c
             for c in reliable
             if c.artists
-            and c.confidence >= max(0.65, top.confidence - 0.10)
+            and c.confidence >= max(0.65, top.confidence - 0.12)
             and string_similarity(top.title, c.title) >= 0.80
         ]
         artist_pool = same_track_reliable or [c for c in reliable if c.artists]
         if artist_pool:
-            best_artists_cand = max(
-                artist_pool,
-                key=lambda c: (len(c.artists), c.confidence),
+            apple_cand = next(
+                (c for c in artist_pool if c.source == "Apple Music" and c.artists),
+                None,
             )
-            merged_artists = list(best_artists_cand.artists)
-            contributing_sources = [best_artists_cand.source]
-            for other in artist_pool:
-                if other.source == best_artists_cand.source:
-                    continue
-                if other.confidence >= max(0.75, top.confidence - 0.08):
-                    before_len = len(merged_artists)
-                    merged_artists = merge_artist_lists(merged_artists, other.artists)
-                    if len(merged_artists) > before_len:
-                        contributing_sources.append(other.source)
+            if apple_cand is not None:
+                combined["artists"] = list(apple_cand.artists)
+                provenance["artists"] = "Apple Music"
+            else:
+                best_artists_cand = max(
+                    artist_pool,
+                    key=lambda c: (len(c.artists), c.confidence),
+                )
+                merged_artists = list(best_artists_cand.artists)
+                contributing_sources = [best_artists_cand.source]
+                for other in artist_pool:
+                    if other.source == best_artists_cand.source:
+                        continue
+                    if other.confidence >= max(0.75, top.confidence - 0.08):
+                        before_len = len(merged_artists)
+                        merged_artists = merge_artist_lists(merged_artists, other.artists)
+                        if len(merged_artists) > before_len:
+                            contributing_sources.append(other.source)
 
-            combined["artists"] = merged_artists
-            provenance["artists"] = (
-                best_artists_cand.source
-                if len(contributing_sources) == 1
-                else " + ".join(contributing_sources)
-            )
+                combined["artists"] = merged_artists
+                provenance["artists"] = (
+                    best_artists_cand.source
+                    if len(contributing_sources) == 1
+                    else " + ".join(contributing_sources)
+                )
 
         # Prefer an explicit studio album name (non-single) among top high-confidence matches
         norm_title = normalize_text(top.title)

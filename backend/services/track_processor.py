@@ -114,19 +114,28 @@ class TrackProcessor:
     @staticmethod
     def _merge_extracted_details(track: TrackState, details: ExtractedEntry) -> None:
         """Merge yt-dlp single-track details without overwriting manual user edits."""
+        origin_label = (
+            "YouTube Music"
+            if track.platform == "youtube_music"
+            else (
+                "YouTube"
+                if not details.extractor or details.extractor.lower() == "youtube"
+                else details.extractor
+            )
+        )
         if track.metadata_provenance.get("title") != "manual" and details.title:
             track.title = details.title
-            track.metadata_provenance.setdefault("title", details.extractor or "yt-dlp")
+            track.metadata_provenance["title"] = origin_label
 
         if track.metadata_provenance.get("artists") != "manual" and details.artists:
             track.artists = details.artists
-            track.metadata_provenance.setdefault("artists", details.extractor or "yt-dlp")
+            track.metadata_provenance["artists"] = origin_label
 
         if track.metadata_provenance.get("album") != "manual":
             if details.album:
                 track.album = details.album
                 track.album_auto_synced = False
-                track.metadata_provenance["album"] = details.extractor or "yt-dlp"
+                track.metadata_provenance["album"] = origin_label
             elif track.album_auto_synced or not track.album:
                 track.album = track.title
                 track.album_auto_synced = True

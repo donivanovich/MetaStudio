@@ -24,6 +24,21 @@ _DEEZER_DETAIL_TIMEOUT = httpx.Timeout(4.0, connect=3.0)
 _mb_lock = asyncio.Lock()
 _mb_last_call: float = 0.0
 _spotify_token_cache: dict[str, Any] = {"token": None, "expires_at": 0.0}
+_spotify_runtime_status: dict[str, str | None] = {
+    "status": None,
+    "detail": None,
+}
+
+
+def get_spotify_runtime_status() -> dict[str, str | None]:
+    """Return latest observed Spotify Web API availability status (never exposes credentials)."""
+    settings = get_settings()
+    if not settings.spotify_client_id or not settings.spotify_client_secret:
+        return {"status": "unconfigured", "detail": None}
+    return {
+        "status": _spotify_runtime_status["status"] or "configured",
+        "detail": _spotify_runtime_status["detail"],
+    }
 
 
 def _build_query(title: str, artists: list[str]) -> str:
@@ -411,6 +426,48 @@ async def _get_spotify_access_token(client: httpx.AsyncClient) -> str | None:
     return token
 
 
+async def fetch_spotify_oembed(
+    client: httpx.AsyncClient, spotify_url: str
+) -> MetadataSourceCandidate | None:
+    """Fetch public Spotify track/album title and cover via Spotify's official oEmbed API (no Premium required)."""
+    if "open.spotify.com/" not in (spotify_url or "").lower():
+        return None
+    try:
+        resp = await client.get(
+            "https://open.spotify.com/oembed",
+            params={"url": spotify_url},
+            timeout=_HTTP_TIMEOUT,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as exc:
+        logger.debug("Spotify oEmbed unavailable for %s: %s", spotify_url, exc)
+        return None
+
+    raw_title = str(payload.get("title") or "").strip()
+    if not raw_title:
+        return None
+    title, artists = normalize_title_and_artists(raw_title, [], structured_artists=True)
+    thumb = payload.get("thumbnail_url")
+    artwork_url = str(thumb).strip() if isinstance(thumb, str) and thumb.strip() else None
+
+    return MetadataSourceCandidate(
+        source="Spotify",
+        title=title,
+        artists=artists,
+        album=None,
+        duration_seconds=None,
+        confidence=0.92,
+        external_id=spotify_url.rsplit("/", 1)[-1].split("?")[0],
+        artwork_url=artwork_url,
+        provenance={
+            "title": "Spotify",
+            "artists": "Spotify" if artists else "none",
+            "album": "none",
+        },
+    )
+
+
 async def search_spotify(
     client: httpx.AsyncClient, title: str, artists: list[str]
 ) -> list[MetadataSourceCandidate]:
@@ -426,5 +483,27 @@ async def search_spotify(
         headers={"Authorization": f"Bearer {token}"},
         timeout=_HTTP_TIMEOUT,
     )
+    if resp.status_code == 403:
+        msg = resp.text.strip()[:300]
+        if "premium" in msg.lower():
+            _spotify_runtime_status["status"] = "premium_required"
+            _spotify_runtime_status["detail"] = (
+                "Spotify Web API requiere suscripción Premium activa en la cuenta propietaria de la app."
+            )
+            logger.warning("Spotify Web API 403 (Premium required): %s", msg)
+        else:
+            _spotify_runtime_status["status"] = "forbidden"
+            _spotify_runtime_status["detail"] = msg or "Spotify Web API devolvió 403 Forbidden."
+            logger.warning("Spotify Web API 403: %s", msg)
+        return []
+
+    if resp.status_code >= 500:
+        _spotify_runtime_status["status"] = "unavailable"
+        _spotify_runtime_status["detail"] = f"Spotify Web API devolvió HTTP {resp.status_code}."
+        logger.warning("Spotify Web API %s", resp.status_code)
+        return []
+
     resp.raise_for_status()
+    _spotify_runtime_status["status"] = "ok"
+    _spotify_runtime_status["detail"] = None
     return parse_spotify_payload(resp.json())

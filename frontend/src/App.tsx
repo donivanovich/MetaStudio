@@ -41,6 +41,7 @@ export function App() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [catalog, setCatalog] = useState<TagCatalogResponse | null>(null);
   const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
+  const [spotifyNotice, setSpotifyNotice] = useState<string | null>(null);
 
   const [analyzing, setAnalyzing] = useState(false);
   const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
@@ -53,11 +54,18 @@ export function App() {
   const saveTimerRef = useRef<number | null>(null);
   const sseCleanupRef = useRef<(() => void) | null>(null);
 
+  const syncHealth = useCallback(() => {
+    getHealth()
+      .then((h) => {
+        setFfmpegAvailable(h.ffmpeg.available);
+        setSpotifyNotice(h.spotify_status?.detail ?? null);
+      })
+      .catch(() => setFfmpegAvailable(null));
+  }, []);
+
   // Load health & versioned tag catalog on startup
   useEffect(() => {
-    getHealth()
-      .then((h) => setFfmpegAvailable(h.ffmpeg.available))
-      .catch(() => setFfmpegAvailable(null));
+    syncHealth();
     getTagCatalog()
       .then(setCatalog)
       .catch(() => {});
@@ -67,7 +75,7 @@ export function App() {
       sseCleanupRef.current?.();
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, []);
+  }, [syncHealth]);
 
   const currentTrack: TrackResponse | null =
     session && session.tracks[currentIndex] ? session.tracks[currentIndex] : null;
@@ -118,6 +126,7 @@ export function App() {
       const result = await analyzeUrl(url.trim());
       setSession(result);
       setCurrentIndex(0);
+      syncHealth();
     } catch (err) {
       setErrorBanner((err as Error).message);
     } finally {
@@ -242,6 +251,7 @@ export function App() {
     try {
       const updated = await refreshArtworkSearch(session.session_id, currentTrack.id);
       replaceTrackInSession(updated);
+      syncHealth();
     } catch (err) {
       setErrorBanner((err as Error).message);
     } finally {
@@ -446,6 +456,7 @@ export function App() {
               onRefreshSearch={handleRefreshSearch}
               refreshing={refreshingSearch}
               uploading={uploadingArt}
+              spotifyNotice={spotifyNotice}
             />
           </main>
 

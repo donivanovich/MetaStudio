@@ -119,17 +119,25 @@ async def enrich_track_metadata_and_artwork(
             },
         )
 
+    # Preserve any pre-existing Spotify oEmbed candidate (e.g. from direct open.spotify.com URLs)
+    existing_spotify = next(
+        (c for c in track.metadata_candidates if c.source == "Spotify"),
+        None,
+    )
+
     ranked, provenance, combined = await search_all_metadata_providers(
         title=track.title,
         artists=track.artists,
         duration_seconds=track.duration_seconds,
     )
     if not ranked:
-        if existing_origin and not track.metadata_candidates:
-            track.metadata_candidates = [existing_origin]
+        if existing_origin and all(c.source != existing_origin.source for c in track.metadata_candidates):
+            track.metadata_candidates.append(existing_origin)
         return
 
     candidates_with_origin = list(ranked)
+    if existing_spotify and all(c.source != "Spotify" for c in candidates_with_origin):
+        candidates_with_origin.append(existing_spotify)
     if existing_origin and all(c.source != existing_origin.source for c in candidates_with_origin):
         candidates_with_origin.append(existing_origin)
     track.metadata_candidates = candidates_with_origin
@@ -142,18 +150,34 @@ async def enrich_track_metadata_and_artwork(
 
         if track.metadata_provenance.get("artists") != "manual" and combined.get("artists"):
             provider_artists = list(combined["artists"])  # type: ignore[arg-type]
-            # Preserve any explicit `feat.` collaborators from the original title
-            # plus verified collaborators from yt-dlp when the primary artist matches
+            artist_source = provenance.get("artists", ranked[0].source)
+            # When Apple Music is selected as the default artists provider, keep its clean list
+            # and only append explicit `feat.` collaborators from the raw title if missing
             _, raw_feat_artists = extract_feat_artists_from_title(track.raw_title)
-            provider_keys = {artist_dedupe_key(a) for a in provider_artists}
-            existing_keys = {artist_dedupe_key(a) for a in track.artists}
-            extra_from_track = track.artists if (len(track.artists) > 1 and (provider_keys & existing_keys)) else []
-            merged_artists = merge_artist_lists(provider_artists, extra_from_track, raw_feat_artists)
+            if artist_source == "Apple Music":
+                merged_artists = merge_artist_lists(provider_artists, raw_feat_artists)
+            else:
+                provider_keys = {artist_dedupe_key(a) for a in provider_artists}
+                existing_keys = {artist_dedupe_key(a) for a in track.artists}
+                extra_from_track = (
+                    track.artists
+                    if (len(track.artists) > 1 and (provider_keys & existing_keys))
+                    else []
+                )
+                merged_artists = merge_artist_lists(
+                    provider_artists, extra_from_track, raw_feat_artists
+                )
             track.artists = merged_artists
-            track.metadata_provenance["artists"] = provenance.get("artists", ranked[0].source)
+            track.metadata_provenance["artists"] = artist_source
 
+        # Default album provider preference: YouTube Music / YouTube origin album first when available,
+        # falling back to external providers (or auto_from_title if none)
         if track.metadata_provenance.get("album") != "manual":
-            if combined.get("album"):
+            if existing_origin and existing_origin.album:
+                track.album = existing_origin.album
+                track.album_auto_synced = False
+                track.metadata_provenance["album"] = existing_origin.source
+            elif combined.get("album"):
                 track.album = str(combined["album"])
                 track.album_auto_synced = False
                 track.metadata_provenance["album"] = provenance.get("album", ranked[0].source)

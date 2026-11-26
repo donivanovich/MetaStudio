@@ -15,6 +15,7 @@ from backend.services.downloader.ytdlp_service import (
 )
 from backend.services.metadata.aggregator import enrich_track_metadata_and_artwork
 from backend.services.metadata.providers import (
+    fetch_spotify_oembed,
     parse_deezer_payload,
     parse_itunes_payload,
     search_deezer,
@@ -174,8 +175,8 @@ async def test_search_deezer_fetches_full_track_contributors():
     assert candidates[0].artists == ["Artista 1", "Artista 2", "Artista 3"]
 
 
-def test_cross_source_scoring_merges_all_collaborating_artists():
-    c1 = MetadataSourceCandidate(
+def test_scoring_prefers_apple_music_for_artists_and_merges_when_absent():
+    c_dz = MetadataSourceCandidate(
         source="Deezer",
         title="LA VERDAD (remix)",
         artists=["Artista 1", "Artista 2"],
@@ -183,7 +184,7 @@ def test_cross_source_scoring_merges_all_collaborating_artists():
         duration_seconds=210,
         confidence=0.0,
     )
-    c2 = MetadataSourceCandidate(
+    c_am = MetadataSourceCandidate(
         source="Apple Music",
         title="LA VERDAD (remix) feat. Artista 3",
         artists=["Artista 1", "Artista 2"],
@@ -191,7 +192,7 @@ def test_cross_source_scoring_merges_all_collaborating_artists():
         duration_seconds=210,
         confidence=0.0,
     )
-    c3 = MetadataSourceCandidate(
+    c_mb = MetadataSourceCandidate(
         source="MusicBrainz",
         title="LA VERDAD remix",
         artists=["Artista 1", "Artista 4"],
@@ -200,14 +201,25 @@ def test_cross_source_scoring_merges_all_collaborating_artists():
         confidence=0.0,
     )
 
-    _ranked, _prov, combined = rank_and_combine_candidates(
+    # When Apple Music matches, Apple Music is the default artists provider
+    _ranked, prov, combined = rank_and_combine_candidates(
         query_title="LA VERDAD remix",
         query_artists=["Artista 1", "Artista 2"],
         query_duration=210,
-        raw_candidates=[c1, c2, c3],
+        raw_candidates=[c_dz, c_am, c_mb],
     )
     assert combined["title"] == "LA VERDAD remix"
-    assert combined["artists"] == ["Artista 1", "Artista 2", "Artista 3", "Artista 4"]
+    assert prov["artists"] == "Apple Music"
+    assert combined["artists"] == ["Artista 1", "Artista 2", "Artista 3"]
+
+    # When Apple Music is absent, collaborating artists merge across reliable sources
+    _ranked2, _prov2, combined2 = rank_and_combine_candidates(
+        query_title="LA VERDAD remix",
+        query_artists=["Artista 1", "Artista 2"],
+        query_duration=210,
+        raw_candidates=[c_dz, c_mb],
+    )
+    assert combined2["artists"] == ["Artista 1", "Artista 2", "Artista 4"]
 
 
 @pytest.mark.asyncio
@@ -329,3 +341,90 @@ async def test_youtube_jpeg_artwork_is_default_first_and_origin_candidate_is_pre
     assert track.selected_artwork_id == "art-yt1"
     assert track.artwork_candidates[0].selected is True
     assert {c.source for c in track.metadata_candidates} == {"Spotify", "Apple Music", "YouTube"}
+
+
+@pytest.mark.asyncio
+async def test_yt_music_album_is_default_and_apple_music_artists_is_default(monkeypatch):
+    async def _fake_search(title, artists, duration_seconds=None):
+        am = MetadataSourceCandidate(
+            source="Apple Music",
+            title="LA VERDAD remix",
+            artists=["Artista 1", "Artista 2", "Artista 3"],
+            album="Album Apple Music",
+            duration_seconds=210,
+            confidence=0.95,
+        )
+        dz = MetadataSourceCandidate(
+            source="Deezer",
+            title="LA VERDAD remix",
+            artists=["Artista 1"],
+            album="Album Deezer",
+            duration_seconds=210,
+            confidence=0.94,
+        )
+        return (
+            [am, dz],
+            {"title": "Apple Music", "artists": "Apple Music", "album": "Apple Music"},
+            {
+                "title": "LA VERDAD remix",
+                "artists": ["Artista 1", "Artista 2", "Artista 3"],
+                "album": "Album Apple Music",
+            },
+        )
+
+    monkeypatch.setattr(
+        "backend.services.metadata.aggregator.search_all_metadata_providers",
+        _fake_search,
+    )
+
+    track = TrackState(
+        id="trk-ytm",
+        index=0,
+        source_id="ytm123",
+        source_url="https://music.youtube.com/watch?v=ytm123",
+        platform="youtube_music",
+        raw_title="LA VERDAD (remix)",
+        title="LA VERDAD remix",
+        artists=["Artista 1"],
+        album="Album YT Music",
+        album_auto_synced=False,
+        metadata_provenance={"album": "YouTube Music"},
+    )
+    session = SessionState(
+        session_id="33333333-3333-4333-8333-333333333333",
+        source_url=track.source_url,
+        platform="youtube_music",
+        tracks=[track],
+        queue_track_ids=[track.id],
+    )
+
+    await enrich_track_metadata_and_artwork(session, track)
+    assert track.album == "Album YT Music"
+    assert track.metadata_provenance["album"] == "YouTube Music"
+    assert track.artists == ["Artista 1", "Artista 2", "Artista 3"]
+    assert track.metadata_provenance["artists"] == "Apple Music"
+
+
+@pytest.mark.asyncio
+async def test_fetch_spotify_oembed_extracts_title_and_artwork():
+    def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oembed":
+            return httpx.Response(
+                200,
+                json={
+                    "title": "LA VERDAD (remix) feat. Artista 2",
+                    "thumbnail_url": "https://image-cdn-ak.spotifycdn.com/image/sample",
+                },
+            )
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_handler)) as client:
+        cand = await fetch_spotify_oembed(
+            client, "https://open.spotify.com/track/47EiUVwUp4C9fGccaPuUCS"
+        )
+
+    assert cand is not None
+    assert cand.source == "Spotify"
+    assert cand.title == "LA VERDAD remix"
+    assert cand.artists == ["Artista 2"]
+    assert cand.artwork_url == "https://image-cdn-ak.spotifycdn.com/image/sample"

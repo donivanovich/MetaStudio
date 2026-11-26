@@ -131,4 +131,8 @@ export interface HealthResponse {
   };
   yt_dlp_version: string;
   providers: Record<string, boolean>;
+  spotify_status?: {
+    status: string | null;
+    detail: string | null;
+  };
 }

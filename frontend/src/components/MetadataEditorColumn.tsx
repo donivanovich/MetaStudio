@@ -124,48 +124,61 @@ export function MetadataEditorColumn({
     [track.metadata_candidates, track.title, track.metadata_provenance.title],
   );
 
-  const artistOptions: SourceOption[] = useMemo(
-    () =>
-      track.metadata_candidates
-        .filter((c) => c.artists.length > 0)
-        .map((c) => {
-          const joined = c.artists.join(", ");
-          return {
-            source: c.source,
-            value: joined,
-            active:
-              track.artists_display.trim() === joined.trim() &&
-              (track.metadata_provenance.artists === c.source ||
-                !track.metadata_candidates.some(
-                  (other) => other.source === track.metadata_provenance.artists,
-                )),
-          };
-        }),
-    [track.metadata_candidates, track.artists_display, track.metadata_provenance.artists],
-  );
-
-  const albumOptions: SourceOption[] = useMemo(
-    () =>
-      track.metadata_candidates
-        .filter((c) => Boolean(c.album?.trim()))
-        .map((c) => ({
+  const artistOptions: SourceOption[] = useMemo(() => {
+    const rankArtistSource = (source: string) => {
+      if (source === "Apple Music") return 0;
+      if (source === "Spotify") return 1;
+      if (source === "Deezer") return 2;
+      if (source === "MusicBrainz") return 3;
+      return 4;
+    };
+    return [...track.metadata_candidates]
+      .filter((c) => c.artists.length > 0)
+      .sort((a, b) => rankArtistSource(a.source) - rankArtistSource(b.source))
+      .map((c) => {
+        const joined = c.artists.join(", ");
+        return {
           source: c.source,
-          value: c.album as string,
+          value: joined,
           active:
-            !track.album_auto_synced &&
-            track.album.trim() === (c.album as string).trim() &&
-            (track.metadata_provenance.album === c.source ||
+            track.artists_display.trim() === joined.trim() &&
+            (track.metadata_provenance.artists === c.source ||
               !track.metadata_candidates.some(
-                (other) => other.source === track.metadata_provenance.album,
+                (other) => other.source === track.metadata_provenance.artists,
               )),
-        })),
-    [
-      track.metadata_candidates,
-      track.album,
-      track.album_auto_synced,
-      track.metadata_provenance.album,
-    ],
-  );
+        };
+      });
+  }, [track.metadata_candidates, track.artists_display, track.metadata_provenance.artists]);
+
+  const albumOptions: SourceOption[] = useMemo(() => {
+    const rankAlbumSource = (source: string) => {
+      if (source === "YouTube Music") return 0;
+      if (source === "YouTube") return 1;
+      if (source === "Spotify") return 2;
+      if (source === "Apple Music") return 3;
+      if (source === "Deezer") return 4;
+      return 5;
+    };
+    return [...track.metadata_candidates]
+      .filter((c) => Boolean(c.album?.trim()))
+      .sort((a, b) => rankAlbumSource(a.source) - rankAlbumSource(b.source))
+      .map((c) => ({
+        source: c.source,
+        value: c.album as string,
+        active:
+          !track.album_auto_synced &&
+          track.album.trim() === (c.album as string).trim() &&
+          (track.metadata_provenance.album === c.source ||
+            !track.metadata_candidates.some(
+              (other) => other.source === track.metadata_provenance.album,
+            )),
+      }));
+  }, [
+    track.metadata_candidates,
+    track.album,
+    track.album_auto_synced,
+    track.metadata_provenance.album,
+  ]);
 
   return (
     <section className="flex flex-col gap-4 rounded-2xl border border-border bg-card/70 p-5 backdrop-blur">
