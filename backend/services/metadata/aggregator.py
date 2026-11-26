@@ -25,6 +25,7 @@ from backend.utils.metadata_normalizer import (
     artist_dedupe_key,
     extract_feat_artists_from_title,
     merge_artist_lists,
+    normalize_album_name,
     normalize_title_and_artists,
 )
 
@@ -85,15 +86,53 @@ async def enrich_track_metadata_and_artwork(
     _session: SessionState, track: TrackState
 ) -> None:
     """TrackProcessor enrichment hook: populates metadata matches, combined fields, artwork, and preview URL."""
+    # Snapshot normalized origin candidate (YouTube / YouTube Music) before external providers overwrite fields
+    origin_label = (
+        "YouTube Music"
+        if track.platform == "youtube_music"
+        else ("YouTube" if track.platform == "youtube" else None)
+    )
+    existing_origin = next(
+        (c for c in track.metadata_candidates if origin_label and c.source == origin_label),
+        None,
+    )
+    if existing_origin is None and origin_label and track.title:
+        yt_title, yt_artists = normalize_title_and_artists(
+            track.title, track.artists, structured_artists=True
+        )
+        yt_album = (
+            normalize_album_name(track.album)
+            if track.album and not track.album_auto_synced
+            else None
+        )
+        existing_origin = MetadataSourceCandidate(
+            source=origin_label,
+            title=yt_title,
+            artists=yt_artists,
+            album=yt_album,
+            duration_seconds=track.duration_seconds,
+            confidence=0.75,
+            provenance={
+                "title": origin_label,
+                "artists": origin_label,
+                "album": origin_label if yt_album else "none",
+            },
+        )
+
     ranked, provenance, combined = await search_all_metadata_providers(
         title=track.title,
         artists=track.artists,
         duration_seconds=track.duration_seconds,
     )
     if not ranked:
+        if existing_origin and not track.metadata_candidates:
+            track.metadata_candidates = [existing_origin]
         return
 
-    track.metadata_candidates = ranked
+    candidates_with_origin = list(ranked)
+    if existing_origin and all(c.source != existing_origin.source for c in candidates_with_origin):
+        candidates_with_origin.append(existing_origin)
+    track.metadata_candidates = candidates_with_origin
 
     # Auto-fill editable fields ONLY when not manually overridden by the user
     if combined:
@@ -163,18 +202,21 @@ async def enrich_track_metadata_and_artwork(
             )
             existing_urls.add(cand.artwork_url)
 
-    # Sort artwork candidates prioritizing highest resolution square covers first
+    # Sort artwork candidates: custom upload first, then YouTube JPEG as default first cover,
+    # followed by external music providers ordered by highest square resolution
     if new_artworks:
         track.artwork_candidates = new_artworks + track.artwork_candidates
+    if track.artwork_candidates:
         track.artwork_candidates.sort(
             key=lambda a: (
                 a.is_custom,
+                "youtube" in a.source.lower(),
                 (a.width or 0) * (a.height or 0) if (a.width == a.height) else (a.width or 0) * 100,
             ),
             reverse=True,
         )
 
-    # Select best artwork automatically ONLY if user hasn't manually chosen one
+    # Select default artwork automatically (YouTube JPEG first) ONLY if user hasn't manually chosen one
     if track.metadata_provenance.get("artwork") != "manual" and track.artwork_candidates:
         best_art = track.artwork_candidates[0]
         for art in track.artwork_candidates:

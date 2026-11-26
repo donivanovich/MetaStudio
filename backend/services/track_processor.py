@@ -144,27 +144,45 @@ class TrackProcessor:
             track.original_language = details.original_language
 
         if details.thumbnail_url:
-            existing_urls = {a.url for a in track.artwork_candidates}
-            if details.thumbnail_url not in existing_urls:
-                art_id = f"art-{uuid.uuid4().hex[:8]}"
-                is_first = len(track.artwork_candidates) == 0
-                source_label = (
-                    "YouTube Music"
-                    if track.platform == "youtube_music"
-                    else (details.extractor or "YouTube")
+            source_label = (
+                "YouTube Music"
+                if track.platform == "youtube_music"
+                else (
+                    "YouTube"
+                    if not details.extractor or details.extractor.lower() == "youtube"
+                    else details.extractor
                 )
-                track.artwork_candidates.append(
-                    ArtworkCandidate(
-                        id=art_id,
-                        source=source_label,
-                        url=details.thumbnail_url,
-                        format="jpeg",
-                        selected=is_first and track.selected_artwork_id is None,
+            )
+            existing_yt = next(
+                (
+                    a
+                    for a in track.artwork_candidates
+                    if not a.is_custom and "youtube" in a.source.lower()
+                ),
+                None,
+            )
+            if existing_yt is not None:
+                existing_yt.url = details.thumbnail_url
+                existing_yt.source = source_label
+                existing_yt.format = "jpeg"
+            else:
+                existing_urls = {a.url for a in track.artwork_candidates}
+                if details.thumbnail_url not in existing_urls:
+                    art_id = f"art-{uuid.uuid4().hex[:8]}"
+                    is_first = len(track.artwork_candidates) == 0
+                    track.artwork_candidates.insert(
+                        0,
+                        ArtworkCandidate(
+                            id=art_id,
+                            source=source_label,
+                            url=details.thumbnail_url,
+                            format="jpeg",
+                            selected=is_first and track.selected_artwork_id is None,
+                        ),
                     )
-                )
-                if is_first and track.selected_artwork_id is None:
-                    track.selected_artwork_id = art_id
-                    track.metadata_provenance.setdefault("artwork", source_label)
+                    if is_first and track.selected_artwork_id is None:
+                        track.selected_artwork_id = art_id
+                        track.metadata_provenance.setdefault("artwork", source_label)
 
 
 track_processor = TrackProcessor()

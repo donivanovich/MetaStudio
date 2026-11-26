@@ -15,6 +15,7 @@ from backend.utils.metadata_normalizer import (
     artist_dedupe_key,
     extract_feat_artists_from_title,
     merge_artist_lists,
+    normalize_album_name,
     normalize_structured_artists,
     normalize_title_and_artists,
     split_artist_string,
@@ -217,7 +218,11 @@ def _normalize_info_to_entry(info: dict[str, Any], fallback_url: str) -> Extract
                 genres.append(tag.strip())
 
     language = info.get("language") if isinstance(info.get("language"), str) else None
-    album = info.get("album") if isinstance(info.get("album"), str) and info["album"].strip() else None
+    album = (
+        normalize_album_name(info["album"])
+        if isinstance(info.get("album"), str) and info["album"].strip()
+        else None
+    )
 
     return ExtractedEntry(
         source_id=str(info.get("id") or _build_entry_url(info, fallback_url)),

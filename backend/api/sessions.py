@@ -16,7 +16,7 @@ from backend.schemas.api import (
 from backend.services.downloader.ytdlp_service import DownloadServiceError, ytdlp_service
 from backend.services.storage.store import session_store
 from backend.services.track_processor import track_processor
-from backend.utils.metadata_normalizer import normalize_title_and_artists
+from backend.utils.metadata_normalizer import normalize_album_name, normalize_title_and_artists
 from backend.utils.url_validator import URLValidationError, validate_url
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
@@ -78,12 +78,19 @@ async def analyze_url(payload: AnalyzeRequest):
         selected_art_id: str | None = None
         if entry.thumbnail_url:
             art_id = f"art-{uuid.uuid4().hex[:8]}"
+            art_source = (
+                "YouTube Music"
+                if validated.platform == "youtube_music"
+                else (
+                    "YouTube"
+                    if not entry.extractor or entry.extractor.lower() == "youtube"
+                    else entry.extractor
+                )
+            )
             art_candidates.append(
                 ArtworkCandidate(
                     id=art_id,
-                    source="YouTube Music"
-                    if validated.platform == "youtube_music"
-                    else (entry.extractor or "YouTube"),
+                    source=art_source,
                     url=entry.thumbnail_url,
                     format="jpeg",
                     selected=True,
@@ -205,15 +212,18 @@ async def apply_metadata_candidate(
     clean_cand_title, clean_cand_artists = normalize_title_and_artists(
         candidate.title, candidate.artists, structured_artists=True
     )
+    clean_cand_album = normalize_album_name(candidate.album)
     if "title" in fields and clean_cand_title:
         track.title = clean_cand_title
         track.metadata_provenance["title"] = candidate.source
+        if track.album_auto_synced and "album" not in fields:
+            track.album = clean_cand_title
     if "artists" in fields and clean_cand_artists:
         track.artists = list(clean_cand_artists)
         track.metadata_provenance["artists"] = candidate.source
     if "album" in fields:
-        if candidate.album:
-            track.album = candidate.album
+        if clean_cand_album:
+            track.album = clean_cand_album
             track.album_auto_synced = False
             track.metadata_provenance["album"] = candidate.source
         else:

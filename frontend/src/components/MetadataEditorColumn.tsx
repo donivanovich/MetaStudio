@@ -1,6 +1,8 @@
-import { Plus, Sparkles, X } from "lucide-react";
+import { Check, Plus, Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { TagCatalogResponse, TagDefinition, TrackResponse } from "../types/music";
+
+type MetadataField = "title" | "artists" | "album";
 
 interface MetadataEditorColumnProps {
   track: TrackResponse;
@@ -8,8 +10,52 @@ interface MetadataEditorColumnProps {
   onTitleChange: (value: string) => void;
   onArtistsTextChange: (value: string) => void;
   onAlbumChange: (value: string) => void;
+  onApplyCandidate: (source: string, fields?: MetadataField[]) => void;
   onTagsChange: (tagIds: string[]) => void;
   onCreateCustomTag: (category: "language" | "mood", name: string) => Promise<TagDefinition | null>;
+}
+
+interface SourceOption {
+  source: string;
+  value: string;
+  active: boolean;
+}
+
+function FieldSourceSwitcher({
+  options,
+  onSelect,
+}: {
+  options: SourceOption[];
+  onSelect: (source: string) => void;
+}) {
+  if (options.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {options.map((opt) => (
+        <button
+          key={opt.source}
+          type="button"
+          onClick={() => onSelect(opt.source)}
+          title={`${opt.source}: ${opt.value}`}
+          className={`inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] transition-all ${
+            opt.active
+              ? "border-primary/60 bg-primary/12 text-foreground shadow-[0_0_0_1px_oklch(88%_0.19_128/0.16)]"
+              : "border-border bg-background/40 text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+          }`}
+        >
+          {opt.active && <Check className="size-3 shrink-0 text-primary stroke-[2.5]" />}
+          <span
+            className={`shrink-0 font-mono text-[10px] ${
+              opt.active ? "font-semibold text-primary" : "text-muted-foreground/80"
+            }`}
+          >
+            {opt.source}
+          </span>
+          <span className="max-w-[160px] truncate text-foreground/85">{opt.value}</span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function MetadataEditorColumn({
@@ -18,6 +64,7 @@ export function MetadataEditorColumn({
   onTitleChange,
   onArtistsTextChange,
   onAlbumChange,
+  onApplyCandidate,
   onTagsChange,
   onCreateCustomTag,
 }: MetadataEditorColumnProps) {
@@ -60,6 +107,66 @@ export function MetadataEditorColumn({
     (s) => !track.selected_tag_ids.includes(s.tag_id),
   );
 
+  const titleOptions: SourceOption[] = useMemo(
+    () =>
+      track.metadata_candidates
+        .filter((c) => Boolean(c.title?.trim()))
+        .map((c) => ({
+          source: c.source,
+          value: c.title,
+          active:
+            track.title.trim() === c.title.trim() &&
+            (track.metadata_provenance.title === c.source ||
+              !track.metadata_candidates.some(
+                (other) => other.source === track.metadata_provenance.title,
+              )),
+        })),
+    [track.metadata_candidates, track.title, track.metadata_provenance.title],
+  );
+
+  const artistOptions: SourceOption[] = useMemo(
+    () =>
+      track.metadata_candidates
+        .filter((c) => c.artists.length > 0)
+        .map((c) => {
+          const joined = c.artists.join(", ");
+          return {
+            source: c.source,
+            value: joined,
+            active:
+              track.artists_display.trim() === joined.trim() &&
+              (track.metadata_provenance.artists === c.source ||
+                !track.metadata_candidates.some(
+                  (other) => other.source === track.metadata_provenance.artists,
+                )),
+          };
+        }),
+    [track.metadata_candidates, track.artists_display, track.metadata_provenance.artists],
+  );
+
+  const albumOptions: SourceOption[] = useMemo(
+    () =>
+      track.metadata_candidates
+        .filter((c) => Boolean(c.album?.trim()))
+        .map((c) => ({
+          source: c.source,
+          value: c.album as string,
+          active:
+            !track.album_auto_synced &&
+            track.album.trim() === (c.album as string).trim() &&
+            (track.metadata_provenance.album === c.source ||
+              !track.metadata_candidates.some(
+                (other) => other.source === track.metadata_provenance.album,
+              )),
+        })),
+    [
+      track.metadata_candidates,
+      track.album,
+      track.album_auto_synced,
+      track.metadata_provenance.album,
+    ],
+  );
+
   return (
     <section className="flex flex-col gap-4 rounded-2xl border border-border bg-card/70 p-5 backdrop-blur">
       {/* Header */}
@@ -96,6 +203,10 @@ export function MetadataEditorColumn({
             onChange={(e) => onTitleChange(e.target.value)}
             className="w-full rounded-xl border border-input bg-background/60 px-3.5 py-2.5 text-sm text-foreground transition-colors focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-ring/40"
           />
+          <FieldSourceSwitcher
+            options={titleOptions}
+            onSelect={(source) => onApplyCandidate(source, ["title"])}
+          />
         </div>
 
         <div>
@@ -122,6 +233,10 @@ export function MetadataEditorColumn({
           <p className="mt-1.5 text-[11px] text-muted-foreground/80">
             Separados por coma y espacio · ej. Bad Bunny, Feid
           </p>
+          <FieldSourceSwitcher
+            options={artistOptions}
+            onSelect={(source) => onApplyCandidate(source, ["artists"])}
+          />
         </div>
 
         <div>
@@ -145,6 +260,10 @@ export function MetadataEditorColumn({
             onChange={(e) => onAlbumChange(e.target.value)}
             placeholder={track.title}
             className="w-full rounded-xl border border-input bg-background/60 px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 transition-colors focus:border-primary/60 focus:outline-none focus:ring-2 focus:ring-ring/40"
+          />
+          <FieldSourceSwitcher
+            options={albumOptions}
+            onSelect={(source) => onApplyCandidate(source, ["album"])}
           />
         </div>
       </div>

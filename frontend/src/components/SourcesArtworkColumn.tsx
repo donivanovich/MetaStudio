@@ -5,7 +5,7 @@ import type { TrackResponse } from "../types/music";
 
 interface SourcesArtworkColumnProps {
   track: TrackResponse;
-  onApplyCandidate: (source: string) => void;
+  onApplyCandidate: (source: string, fields?: ("title" | "artists" | "album")[]) => void;
   onSelectArtwork: (artworkId: string) => void;
   onUploadArtwork: (file: File) => void;
   onRefreshSearch: () => void;
@@ -82,35 +82,66 @@ export function SourcesArtworkColumn({
             </div>
 
             {selectedCandidate && (
-              <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/50 p-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {selectedCandidate.title}
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {selectedCandidate.artists.join(", ") || "—"}
-                    {selectedCandidate.album ? ` · ${selectedCandidate.album}` : ""}
-                  </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <div className="h-1 w-20 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary transition-all"
-                        style={{ width: `${Math.round(selectedCandidate.confidence * 100)}%` }}
-                      />
+              <div className="mt-3 rounded-xl border border-border bg-background/50 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {selectedCandidate.title}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {selectedCandidate.artists.join(", ") || "—"}
+                      {selectedCandidate.album ? ` · ${selectedCandidate.album}` : ""}
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-1 w-20 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all"
+                          style={{ width: `${Math.round(selectedCandidate.confidence * 100)}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {Math.round(selectedCandidate.confidence * 100)}%
+                      </span>
                     </div>
-                    <span className="font-mono text-[10px] text-muted-foreground">
-                      {Math.round(selectedCandidate.confidence * 100)}%
-                    </span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => onApplyCandidate(selectedCandidate.source)}
+                    className="shrink-0 cursor-pointer rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
+                  >
+                    Aplicar todo
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => onApplyCandidate(selectedCandidate.source)}
-                  className="shrink-0 cursor-pointer rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-accent"
-                >
-                  Aplicar
-                </button>
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-2.5">
+                  <span className="text-[10px] text-muted-foreground/80">Solo campo:</span>
+                  <button
+                    type="button"
+                    onClick={() => onApplyCandidate(selectedCandidate.source, ["title"])}
+                    className="cursor-pointer rounded-md border border-border bg-background/60 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                  >
+                    Título
+                  </button>
+                  {selectedCandidate.artists.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onApplyCandidate(selectedCandidate.source, ["artists"])}
+                      className="cursor-pointer rounded-md border border-border bg-background/60 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                    >
+                      Artistas
+                    </button>
+                  )}
+                  {selectedCandidate.album && (
+                    <button
+                      type="button"
+                      onClick={() => onApplyCandidate(selectedCandidate.source, ["album"])}
+                      className="cursor-pointer rounded-md border border-border bg-background/60 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                    >
+                      Álbum
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </>
@@ -149,7 +180,7 @@ export function SourcesArtworkColumn({
         />
 
         <div className="grid grid-cols-3 gap-2.5">
-          {track.artwork_candidates.slice(0, 5).map((art) => {
+          {track.artwork_candidates.slice(0, 8).map((art) => {
             const isSelected = art.id === track.selected_artwork_id || art.selected;
             const resolution =
               art.width && art.height ? `${art.width}×${art.height}` : art.format.toUpperCase();

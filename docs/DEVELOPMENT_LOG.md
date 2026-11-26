@@ -333,3 +333,30 @@ Garantizar que no se pierdan artistas colaboradores al analizar y enriquecer pis
 
 ### Resultado
 Fase 11 implementada, verificada en contenedores vivos y lista en `main`.
+
+---
+
+## 2026-11-26 — Fase 12: Selector normalizado por campo, carátula YouTube JPEG predeterminada, título limpio y Spotify API
+
+### Implementación
+- Añadida `normalize_album_name` en `backend/utils/metadata_normalizer.py` y aplicada en todos los proveedores (`Deezer`, `Apple Music`, `MusicBrainz`, `Discogs`, `Spotify`), `yt-dlp`, `scoring.py` y `apply-candidate` (eliminando `- Single`, ruido de plataforma, cláusulas `feat.` y paréntesis de versión).
+- Incluido candidato normalizado de origen (`YouTube` / `YouTube Music`) en `track.metadata_candidates` junto a los proveedores externos para poder alternar entre todas las fuentes normalizadas.
+- Priorizada la carátula **YouTube / YouTube Music JPEG** como primera opción y carátula predeterminada al enriquecer pistas en `backend/services/metadata/aggregator.py` y `backend/services/track_processor.py` (respetando siempre carátulas subidas por el usuario).
+- Añadido selector visual por campo (`FieldSourceSwitcher`) directamente debajo de *Nombre de la canción*, *Artistas* y *Álbum* en `frontend/src/components/MetadataEditorColumn.tsx` (además de botones por campo en `SourcesArtworkColumn.tsx`), permitiendo cambiar cada metadato entre las fuentes normalizadas igual que con las carátulas.
+- Actualizado `<title>` de `frontend/index.html` a `MetaStudio` únicamente.
+- Configuradas credenciales de Spotify Web API localmente en `.env` (excluido de Git y del contexto de build).
+
+### Archivos modificados
+- `backend/utils/metadata_normalizer.py`
+- `backend/services/metadata/providers.py`
+- `backend/services/metadata/scoring.py`
+- `backend/services/metadata/aggregator.py`
+- `backend/services/downloader/ytdlp_service.py`
+- `backend/services/track_processor.py`
+- `backend/api/sessions.py`
+- `backend/tests/test_metadata_normalizer.py`
+- `frontend/index.html`
+- `frontend/src/App.tsx`
+- `frontend/src/components/MetadataEditorColumn.tsx`
+- `frontend/src/components/SourcesArtworkColumn.tsx`
+- `docs/DEVELOPMENT_LOG.md`

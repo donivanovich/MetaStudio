@@ -12,6 +12,7 @@ from backend.config.settings import get_settings
 from backend.models.domain import MetadataSourceCandidate
 from backend.utils.metadata_normalizer import (
     merge_artist_lists,
+    normalize_album_name,
     normalize_title_and_artists,
     split_artist_string,
 )
@@ -50,7 +51,7 @@ def parse_deezer_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]:
             raw_artists = merge_artist_lists([artist_name], raw_artists)
 
         album_obj = item.get("album") or {}
-        album_title = str(album_obj.get("title") or "").strip() or None
+        album_title = normalize_album_name(str(album_obj.get("title") or "").strip() or None)
         artwork = (
             album_obj.get("cover_xl")
             or album_obj.get("cover_big")
@@ -87,7 +88,7 @@ def parse_itunes_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]:
             continue
         raw_title = str(item.get("trackName") or "").strip()
         artist = str(item.get("artistName") or "").strip()
-        album = str(item.get("collectionName") or "").strip() or None
+        album = normalize_album_name(str(item.get("collectionName") or "").strip() or None)
         ms = item.get("trackTimeMillis")
         duration = int(round(ms / 1000)) if isinstance(ms, (int, float)) and ms > 0 else None
         genre = str(item.get("primaryGenreName") or "").strip()
@@ -145,7 +146,7 @@ def parse_musicbrainz_payload(data: dict[str, Any]) -> list[MetadataSourceCandid
         album = None
         artwork_url = None
         if releases and isinstance(releases[0], dict):
-            album = str(releases[0].get("title") or "").strip() or None
+            album = normalize_album_name(str(releases[0].get("title") or "").strip() or None)
             release_id = releases[0].get("id")
             if release_id:
                 artwork_url = f"https://coverartarchive.org/release/{release_id}/front-500"
@@ -239,7 +240,7 @@ def parse_spotify_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]
             raw_title, raw_artists, structured_artists=True
         )
         album_obj = item.get("album") or {}
-        album = str(album_obj.get("name") or "").strip() or None
+        album = normalize_album_name(str(album_obj.get("name") or "").strip() or None)
         images = album_obj.get("images") or []
         artwork = images[0].get("url") if images and isinstance(images[0], dict) else None
         ms = item.get("duration_ms")

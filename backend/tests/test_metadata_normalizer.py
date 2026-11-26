@@ -3,7 +3,12 @@
 import httpx
 import pytest
 
-from backend.models.domain import MetadataSourceCandidate, SessionState, TrackState
+from backend.models.domain import (
+    ArtworkCandidate,
+    MetadataSourceCandidate,
+    SessionState,
+    TrackState,
+)
 from backend.services.downloader.ytdlp_service import (
     _normalize_info_to_entry,
     clean_track_title_and_artists,
@@ -16,6 +21,7 @@ from backend.services.metadata.providers import (
 )
 from backend.services.metadata.scoring import rank_and_combine_candidates
 from backend.utils.metadata_normalizer import (
+    normalize_album_name,
     normalize_title_and_artists,
     split_artist_string,
 )
@@ -248,3 +254,78 @@ async def test_aggregator_preserves_raw_title_feat_artists_when_provider_omits_t
     await enrich_track_metadata_and_artwork(session, track)
     assert track.title == "LA VERDAD remix"
     assert track.artists == ["Artista 1", "Artista 2", "No se quien"]
+
+
+def test_album_normalization_strips_single_and_feat_and_unwraps_remix():
+    assert normalize_album_name("LA VERDAD (Remix) [feat. Mora] - Single") == "LA VERDAD Remix"
+    assert normalize_album_name("EL ÚLTIMO TOUR DEL MUNDO") == "EL ÚLTIMO TOUR DEL MUNDO"
+    assert normalize_album_name("   ") is None
+
+
+@pytest.mark.asyncio
+async def test_youtube_jpeg_artwork_is_default_first_and_origin_candidate_is_preserved(monkeypatch):
+    async def _fake_search(title, artists, duration_seconds=None):
+        sp = MetadataSourceCandidate(
+            source="Spotify",
+            title="LA VERDAD remix",
+            artists=["Artista 1", "Artista 2"],
+            album="LA VERDAD remix",
+            duration_seconds=210,
+            confidence=0.95,
+            artwork_url="https://i.scdn.co/image/spotify_640.jpg",
+        )
+        am = MetadataSourceCandidate(
+            source="Apple Music",
+            title="LA VERDAD remix",
+            artists=["Artista 1", "Artista 2"],
+            album="Album Oficial",
+            duration_seconds=210,
+            confidence=0.94,
+            artwork_url="https://is1.mzstatic.com/image/1400x1400bb.jpg",
+        )
+        return (
+            [sp, am],
+            {"title": "Spotify", "artists": "Spotify", "album": "Apple Music"},
+            {"title": "LA VERDAD remix", "artists": ["Artista 1", "Artista 2"], "album": "Album Oficial"},
+        )
+
+    monkeypatch.setattr(
+        "backend.services.metadata.aggregator.search_all_metadata_providers",
+        _fake_search,
+    )
+
+    yt_art = ArtworkCandidate(
+        id="art-yt1",
+        source="YouTube",
+        url="https://i.ytimg.com/vi/abc/maxresdefault.jpg",
+        format="jpeg",
+        selected=True,
+    )
+    track = TrackState(
+        id="trk-yt",
+        index=0,
+        source_id="abc",
+        source_url="https://www.youtube.com/watch?v=abc",
+        platform="youtube",
+        raw_title="LA VERDAD (remix) feat. Artista 2",
+        title="LA VERDAD remix",
+        artists=["Artista 1", "Artista 2"],
+        album="LA VERDAD remix",
+        album_auto_synced=True,
+        selected_artwork_id=yt_art.id,
+        artwork_candidates=[yt_art],
+    )
+    session = SessionState(
+        session_id="22222222-2222-4222-8222-222222222222",
+        source_url=track.source_url,
+        platform="youtube",
+        tracks=[track],
+        queue_track_ids=[track.id],
+    )
+
+    await enrich_track_metadata_and_artwork(session, track)
+    assert track.artwork_candidates[0].source == "YouTube"
+    assert track.artwork_candidates[0].format == "jpeg"
+    assert track.selected_artwork_id == "art-yt1"
+    assert track.artwork_candidates[0].selected is True
+    assert {c.source for c in track.metadata_candidates} == {"Spotify", "Apple Music", "YouTube"}

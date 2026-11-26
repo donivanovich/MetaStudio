@@ -65,6 +65,10 @@ _ARTIST_SPLIT_RE = re.compile(
 _EMPTY_BRACKETS_RE = re.compile(r"\s*[\(\[]\s*[\)\]]")
 _MULTI_SPACE_RE = re.compile(r"\s+")
 _PUNCT_KEY_RE = re.compile(r"[^\w\s]", flags=re.UNICODE)
+_ALBUM_SINGLE_SUFFIX_RE = re.compile(
+    r"\s*(?:[-–—]\s*single|[\(\[]\s*single\s*[\)\]])$",
+    flags=re.IGNORECASE,
+)
 
 
 def artist_dedupe_key(name: str) -> str:
@@ -232,3 +236,14 @@ def normalize_title_and_artists(
     final_artists = merge_artist_lists(base_artists, feat_artists)
 
     return final_title or (title or "").strip(), final_artists
+
+
+def normalize_album_name(album: str | None) -> str | None:
+    """Normalize album name: remove '- Single', video noise, feat. clauses, and unwrap '(remix)'."""
+    if not album or not album.strip():
+        return None
+    cleaned = _ALBUM_SINGLE_SUFFIX_RE.sub("", album.strip()).strip()
+    no_feat, _ = extract_feat_artists_from_title(cleaned)
+    formatted = format_version_qualifiers(no_feat)
+    result = formatted or cleaned
+    return result.strip() or None

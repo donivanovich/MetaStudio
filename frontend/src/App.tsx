@@ -217,10 +217,18 @@ export function App() {
     }
   };
 
-  const handleApplyCandidate = async (source: string) => {
+  const handleApplyCandidate = async (
+    source: string,
+    fields?: ("title" | "artists" | "album")[],
+  ) => {
     if (!session || !currentTrack) return;
     try {
-      const updated = await applyMetadataCandidate(session.session_id, currentTrack.id, source);
+      const updated = await applyMetadataCandidate(
+        session.session_id,
+        currentTrack.id,
+        source,
+        fields,
+      );
       replaceTrackInSession(updated);
     } catch (err) {
       setErrorBanner((err as Error).message);
@@ -425,6 +433,7 @@ export function App() {
               onTitleChange={handleTitleChange}
               onArtistsTextChange={handleArtistsTextChange}
               onAlbumChange={handleAlbumChange}
+              onApplyCandidate={handleApplyCandidate}
               onTagsChange={handleTagsChange}
               onCreateCustomTag={handleCreateCustomTag}
             />

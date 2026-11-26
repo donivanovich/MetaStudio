@@ -7,6 +7,7 @@ from difflib import SequenceMatcher
 from backend.models.domain import MetadataSourceCandidate
 from backend.utils.metadata_normalizer import (
     merge_artist_lists,
+    normalize_album_name,
     normalize_title_and_artists,
 )
 
@@ -99,14 +100,17 @@ def rank_and_combine_candidates(
     if not raw_candidates:
         return [], {}, {}
 
-    # Normalize candidates first so feat. artists and "(remix)" -> "remix" are consistent everywhere
+    # Normalize candidates first so title, artists and album are clean & consistent across all sources
     normalized_candidates: list[MetadataSourceCandidate] = []
     for cand in raw_candidates:
         clean_title, clean_artists = normalize_title_and_artists(
             cand.title, cand.artists, structured_artists=True
         )
+        clean_album = normalize_album_name(cand.album)
         normalized_candidates.append(
-            cand.model_copy(update={"title": clean_title, "artists": clean_artists})
+            cand.model_copy(
+                update={"title": clean_title, "artists": clean_artists, "album": clean_album}
+            )
         )
 
     # Count cross-source agreement per normalized title and album
