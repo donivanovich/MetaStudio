@@ -37,9 +37,25 @@ Variables principales en `.env`:
 | `MUSICBRAINZ_USER_AGENT` | User-Agent requerido por la API de MusicBrainz | No |
 | `DISCOGS_TOKEN` | Personal Access Token de [Discogs Developers](https://www.discogs.com/settings/developers) | Opcional |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Credenciales Client Credentials de [Spotify Dashboard](https://developer.spotify.com/dashboard) | Opcional |
-| `VITE_API_BASE_URL` | URL base del backend cuando frontend y backend se despliegan por separado | No (en dev Vite usa proxy) |
+| `VITE_API_BASE_URL` | URL base del backend cuando frontend y backend se despliegan por separado | No (en dev Vite usa proxy; en Docker Nginx usa proxy) |
+| `FRONTEND_PORT` | Puerto público expuesto por el contenedor Nginx al usar Docker Compose (`8080`) | No (solo Docker) |
 
 > **Nota:** **MusicBrainz**, **Deezer** e **iTunes / Apple Music** funcionan directamente sin claves API. Discogs y Spotify se activan automáticamente al introducir sus credenciales en `.env` (nunca se exponen al frontend).
+
+---
+
+## 2.5. Ejecución Rápida con Docker Compose (Alternativa Recomendada)
+
+Si prefieres no instalar Python, Node.js ni FFmpeg localmente, puedes levantar toda la aplicación con un único comando:
+
+```bash
+docker compose up --build -d
+```
+
+- Interfaz web (Nginx + SPA + proxy `/api`): `http://localhost:8080`
+- Backend healthcheck: `http://localhost:8000/api/v1/health`
+
+Para volúmenes, personalización de puertos, actualización de `yt-dlp` y solución de problemas en contenedores, consulta [docs/DOCKER.md](DOCKER.md).
 
 ---
 

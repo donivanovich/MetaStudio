@@ -110,3 +110,17 @@ Para no simular compatibilidad inexistente y respetar DRM y términos de servici
 | Orquestador y cola | Procesamiento lazy, cola de descarga, SSE, generador ZIP | `backend/workers/download_manager.py` |
 | Endpoints REST & SSE | Rutas organizadas `/api/v1/*` | `backend/api/` |
 | Frontend SPA | Interfaz de 3 columnas, reproductor, editor, fuentes, cola | `frontend/src/` |
+| Contenedor Backend | Imagen Python 3.12 + FFmpeg nativo, usuario no-root y healthcheck | `backend/Dockerfile` |
+| Contenedor Frontend & Proxy | Build multi-stage Node 22 → Nginx 1.27 Alpine con soporte SSE y proxy `/api/` | `frontend/Dockerfile`, `frontend/nginx.conf` |
+| Orquestación Docker | Red aislada, volúmenes persistentes (`data`/`tmp`) y arranque ordenado | `docker-compose.yml`, `.dockerignore`, `frontend/.dockerignore` |
+
+---
+
+## 6. Despliegue Contenerizado (Docker)
+
+El despliegue oficial en contenedores desacopla el frontend y el backend mediante `docker-compose.yml`:
+
+- **`frontend` (Nginx 1.27 Alpine)**: Sirve los activos estáticos compilados por Vite y hace proxy inverso de `/api/*` hacia `http://backend:8000`. La ruta de streaming SSE (`/api/v1/jobs/<id>/events`) desactiva `proxy_buffering` y `gzip` con timeout extendido (`3600s`) para garantizar progreso en vivo sin cortes.
+- **`backend` (Python 3.12 Slim + FFmpeg)**: Ejecuta Uvicorn con un único worker asíncrono y cabeceras de proxy (`--proxy-headers`) como usuario no-root (`appuser`), montando los volúmenes `metastudio_data` (etiquetas persistentes) y `metastudio_tmp` (sesiones, descargas temporales y ZIPs).
+
+Consulta la guía operativa completa en [docs/DOCKER.md](DOCKER.md).

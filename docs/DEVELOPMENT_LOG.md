@@ -242,3 +242,43 @@ Fase 9: Ejecutar pruebas de seguridad/aislamiento/SSE, completar documentación 
 
 ### Resultado
 Proyecto completo (Fases 1 a 9) implementado, probado y documentado.
+
+---
+
+## 2026-11-26 — Fase 10: Dockerización completa y documentación operativa
+
+### Implementación
+- Creado `backend/Dockerfile` sobre `python:3.12-slim` con instalación nativa de `ffmpeg` y `ca-certificates`, instalación cacheada de dependencias Python, usuario no-root (`appuser`, UID 1000), healthcheck sobre `/api/v1/health` y ejecución de Uvicorn con `--proxy-headers --forwarded-allow-ips=*`.
+- Creado `frontend/Dockerfile` multi-stage (`node:22-alpine` → `nginx:1.27-alpine`) con build determinista (`npm ci` + `npm run build`), `VITE_API_BASE_URL=""` por defecto para comunicación same-origin y healthcheck en `/healthz`.
+- Creado `frontend/nginx.conf` con fallback SPA, caché inmutable para `/assets/`, límite de subida de `30m` para carátulas personalizadas y bloque dedicado para SSE (`/api/v1/jobs/<id>/events`) sin buffering ni compresión gzip y timeout de `3600s`.
+- Creado `docker-compose.yml` con red dedicada (`metastudio-net`), volúmenes persistentes (`metastudio_data` y `metastudio_tmp`), `env_file` opcional (`required: false`), sobrescritura segura de rutas/host del contenedor y dependencia ordenada (`depends_on: condition: service_healthy`).
+- Añadidos `.dockerignore` (raíz) y `frontend/.dockerignore` para reducir el contexto de build y excluir secretos y artefactos temporales.
+- Redactada guía completa de despliegue en `docs/DOCKER.md` y actualizados `README.md`, `docs/SETUP.md`, `docs/ARCHITECTURE.md`, `.env.example` y `docs/IMPLEMENTATION_STATUS.md`.
+
+### Archivos creados
+- `backend/Dockerfile`
+- `frontend/Dockerfile`
+- `frontend/nginx.conf`
+- `docker-compose.yml`
+- `.dockerignore`
+- `frontend/.dockerignore`
+- `docs/DOCKER.md`
+
+### Archivos modificados
+- `.env.example`
+- `README.md`
+- `docs/SETUP.md`
+- `docs/ARCHITECTURE.md`
+- `docs/IMPLEMENTATION_STATUS.md`
+- `docs/DEVELOPMENT_LOG.md`
+
+### Motivo del cambio
+Permitir desplegar y ejecutar MetaStudio de forma reproducible en cualquier entorno mediante Docker y Docker Compose, sin instalación manual de Python, Node.js ni FFmpeg, manteniendo soporte íntegro para SSE, descargas ZIP y persistencia de etiquetas.
+
+### Validación
+- [x] Validación de esquema y resolución de variables con `docker compose config` (código de salida `0`, sin advertencias).
+- [x] Revisión de contextos de build (`.dockerignore` y `frontend/.dockerignore`), cabeceras proxy/SSE en Nginx y aislamiento de permisos no-root.
+- [ ] Build y ejecución en vivo de contenedores pendiente de iniciar el motor de Docker Desktop en el equipo local (`dockerDesktopLinuxEngine` detenido durante la sesión).
+
+### Resultado
+Dockerización y documentación operativa completadas y listas para levantar con `docker compose up --build -d`.
