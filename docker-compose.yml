@@ -1,0 +1,74 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BACKEND_HOST: "0.0.0.0"
+      BACKEND_PORT: "8000"
+      # Force container-native FFmpeg even if .env has a host-specific Windows/macOS path
+      FFMPEG_PATH: ""
+      TEMP_STORAGE_DIR: /app/backend/tmp
+      DATA_STORAGE_DIR: /app/backend/data
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173}
+      AUDIO_MP3_BITRATE: ${AUDIO_MP3_BITRATE:-320}
+      PLAYLIST_DOWNLOAD_CONCURRENCY: ${PLAYLIST_DOWNLOAD_CONCURRENCY:-2}
+      MAX_ARTWORK_UPLOAD_MB: ${MAX_ARTWORK_UPLOAD_MB:-10}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+      MUSICBRAINZ_USER_AGENT: ${MUSICBRAINZ_USER_AGENT:-MetaStudio/1.0.0 (https://github.com/donivanovich/MetaStudio)}
+      DISCOGS_TOKEN: ${DISCOGS_TOKEN:-}
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - metastudio_data:/app/backend/data
+      - metastudio_tmp:/app/backend/tmp
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4); sys.exit(0 if r.status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - metastudio-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Empty base URL routes /api/v1/* through the Nginx reverse proxy on the same origin
+        VITE_API_BASE_URL: ""
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - metastudio-net
+
+volumes:
+  metastudio_data:
+  metastudio_tmp:
+
+networks:
+  metastudio-net:
+    driver: bridge

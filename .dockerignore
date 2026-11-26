@@ -1,0 +1,39 @@
+# Git & documentation
+.git
+.gitignore
+docs/
+README.md
+
+# Python virtualenvs & caches
+.venv/
+venv/
+ENV/
+backend/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+
+# Frontend (built in its own context)
+frontend/
+
+# Secrets & local environment
+.env
+.env.*
+!.env.example
+
+# Runtime & generated media
+backend/data/
+backend/tmp/
+**/*.mp3
+**/*.m4a
+**/*.webm
+**/*.opus
+**/*.zip
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
