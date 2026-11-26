@@ -168,3 +168,11 @@ async def test_album_auto_sync_and_independent_queue():
             assert qdata["total_tracks"] == 2
             assert t0["id"] not in qdata["queue_track_ids"]
             assert qdata["tracks"][0]["in_queue"] is False
+
+            # Clearing the entire queue empties queue_track_ids while keeping all tracks intact
+            r_clear = await client.delete(f"/api/v1/sessions/{sid}/queue")
+            assert r_clear.status_code == 200
+            cdata = r_clear.json()
+            assert cdata["total_tracks"] == 2
+            assert cdata["queue_track_ids"] == []
+            assert all(t["in_queue"] is False for t in cdata["tracks"])

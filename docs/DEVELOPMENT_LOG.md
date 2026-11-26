@@ -402,3 +402,12 @@ Fase 11 implementada, verificada en contenedores vivos y lista en `main`.
 - Personalizado el scrollbar global en `frontend/src/index.css` con fondo del mismo color que la web (`--background`), barra deslizante (`thumb`) y flechas (`::-webkit-scrollbar-button:single-button`) en el verde lima de contraste (`--primary`), con fallback `scrollbar-color` para Firefox.
 - Rediseñado el contador visual de puntos en `frontend/src/components/TrackNavBar.tsx` como ventana deslizante en una única línea de 13 círculos: desde la canción 1 hasta la 7 el punto activo avanza al centro, permanece centrado en toda la playlist y se desplaza hacia la derecha al llegar a las últimas 7 canciones.
 - Eliminados los botones por archivo descargado en `frontend/src/components/DownloadProgressDrawer.tsx` (que generaban cientos de botones en playlists grandes de 300+ canciones), mostrando únicamente el botón de descarga del ZIP y un listado compacto con scroll únicamente para las canciones que hayan tenido error.
+
+---
+
+## 2026-11-26 — Fase 16: Botón «Limpiar cola» y metadatos de previsualización al compartir enlaces (Open Graph / Twitter Card)
+
+### Implementación
+- Añadido endpoint `DELETE /api/v1/sessions/{session_id}/queue` en `backend/api/sessions.py` para vaciar toda la cola de descarga sin modificar la playlist original cargada, con prueba automatizada en `backend/tests/test_phase3_playlists.py`.
+- Añadido cliente `clearQueue` en `frontend/src/services/api.ts`, manejador `handleClearQueue` en `frontend/src/App.tsx` y botón **Limpiar cola** (`ListX`) en `frontend/src/components/ActionFooter.tsx`.
+- Generada imagen social `frontend/public/og-image.png` (`1200×630`) acorde a la estética oscura + verde lima de MetaStudio y añadidas etiquetas `description`, Open Graph (`og:*`) y Twitter Card (`twitter:*`) en `frontend/index.html`.

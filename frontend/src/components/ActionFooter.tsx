@@ -1,6 +1,7 @@
 import {
   Download,
   FolderArchive,
+  ListX,
   Loader2,
   RotateCcw,
   Trash2,
@@ -13,6 +14,7 @@ interface ActionFooterProps {
   queueCount: number;
   isBusyDownloading: boolean;
   onToggleQueue: () => void;
+  onClearQueue: () => void;
   onRetryTrack: () => void;
   onDownloadSingle: () => void;
   onDownloadPlaylist: () => void;
@@ -23,6 +25,7 @@ export function ActionFooter({
   queueCount,
   isBusyDownloading,
   onToggleQueue,
+  onClearQueue,
   onRetryTrack,
   onDownloadSingle,
   onDownloadPlaylist,
@@ -53,6 +56,18 @@ export function ActionFooter({
             </>
           )}
         </button>
+
+        {queueCount > 0 && (
+          <button
+            type="button"
+            disabled={isBusyDownloading}
+            onClick={onClearQueue}
+            className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-card/70 px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <ListX className="size-4" />
+            <span>Limpiar cola</span>
+          </button>
+        )}
 
         {track.status === "error" && (
           <button

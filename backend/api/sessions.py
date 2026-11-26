@@ -236,6 +236,17 @@ async def apply_metadata_candidate(
     return session_store.serialize_track(session, track)
 
 
+@router.delete("/sessions/{session_id}/queue", response_model=SessionResponse)
+async def clear_download_queue(session_id: str):
+    """Clear the entire download queue without modifying the original loaded playlist."""
+    session = session_store.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada.")
+    session.queue_track_ids = []
+    session_store.save_session(session)
+    return session_store.serialize_session(session)
+
+
 @router.delete("/sessions/{session_id}/queue/{track_id}", response_model=SessionResponse)
 async def remove_track_from_queue(session_id: str, track_id: str):
     """Remove a track from the independent download queue without modifying the original playlist."""

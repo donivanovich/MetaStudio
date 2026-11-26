@@ -160,6 +160,12 @@ export function updateTrackTags(
   );
 }
 
+export function clearQueue(sessionId: string): Promise<SessionResponse> {
+  return requestJson<SessionResponse>(`/api/v1/sessions/${sessionId}/queue`, {
+    method: "DELETE",
+  });
+}
+
 export function removeFromQueue(
   sessionId: string,
   trackId: string,

@@ -12,6 +12,7 @@ import {
   analyzeUrl,
   applyMetadataCandidate,
   cancelDownloadJob,
+  clearQueue,
   createCustomTag,
   getHealth,
   getSession,
@@ -297,6 +298,16 @@ export function App() {
     }
   };
 
+  const handleClearQueue = async () => {
+    if (!session) return;
+    try {
+      const nextSession = await clearQueue(session.session_id);
+      setSession(nextSession);
+    } catch (err) {
+      setErrorBanner((err as Error).message);
+    }
+  };
+
   const attachJobStream = (job: DownloadJobResponse, autoTriggerFile: boolean) => {
     setActiveJob(job);
     sseCleanupRef.current?.();
@@ -460,6 +471,7 @@ export function App() {
             queueCount={session.queue_track_ids.length}
             isBusyDownloading={Boolean(isBusyDownloading)}
             onToggleQueue={handleToggleQueue}
+            onClearQueue={handleClearQueue}
             onRetryTrack={() =>
               void ensureTrackProcessed(session.session_id, currentTrack, true)
             }
