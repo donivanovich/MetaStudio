@@ -97,7 +97,7 @@ async def test_drm_url_refuses_fake_download_honestly():
         ) as client:
             an = await client.post(
                 "/api/v1/analyze",
-                json={"url": "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"},
+                json={"url": "https://music.apple.com/es/album/example/12345"},
             )
             assert an.status_code == 200
             data = an.json()

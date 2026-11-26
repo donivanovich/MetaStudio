@@ -12,7 +12,7 @@ Aplicación web profesional cliente-servidor para descargar canciones y playlist
   - **Centro**: Editor estricto de los 4 elementos permitidos (*Carátula, Nombre de canción, Artistas, Álbum*) + gestor visual de etiquetas inteligentes (*Idioma* y *Estado de ánimo*).
   - **Derecha**: Comparador de fuentes musicales con puntuación de confianza y selector/subida de carátulas.
 - **Carga Diferida (Lazy Loading) de Playlists**: Extrae playlists grandes en modo ligero (`extract_flat="in_playlist"`) y procesa inicialmente solo la primera canción; el resto se enriquece y cachea bajo demanda al navegar o al iniciar la descarga completa.
-- **Búsqueda Inteligente de Metadatos y Carátulas**: Combina resultados de **Deezer**, **iTunes / Apple Music**, **MusicBrainz + Cover Art Archive** (sin claves requeridas) y adaptadores configurables de **Discogs** y **Spotify** mediante puntuación multi-factor y trazabilidad por campo.
+- **Búsqueda Inteligente de Metadatos y Carátulas**: Combina resultados de **Deezer**, **iTunes / Apple Music**, **MusicBrainz + Cover Art Archive** (sin claves requeridas) y adaptador configurable de **Discogs** mediante puntuación multi-factor y trazabilidad por campo.
 - **Escritura Estricta ID3v2.3 (Mutagen)**: Elimina todos los frames previos y escribe exclusivamente `TIT2`, `TPE1`, `TALB` y `APIC` (imagen frontal).
 - **Formato Obligatorio de Nombres**: `nombrecancion_primerartista.mp3` (p. ej. `callaita_bad_bunny.mp3`, `la_noche_de_anoche_bad_bunny.mp3`) con deduplicación segura.
 - **Sistema Independiente de Etiquetas (v1.0.0)**: Utiliza `TCON`/`TLAN` originales y géneros de proveedores para sugerir idioma y estado de ánimo con nivel de confianza, guardándolos por separado (`backend/data/track_tags.json`) para reutilización futura sin escribirlos nunca en el MP3.
@@ -27,7 +27,7 @@ Aplicación web profesional cliente-servidor para descargar canciones y playlist
 Requiere **Docker** y **Docker Compose v2** (incluye FFmpeg nativo, Nginx reverse proxy con soporte SSE y volúmenes persistentes):
 
 ```bash
-# Opcional: copiar .env.example a .env si deseas añadir credenciales de Discogs/Spotify o fijar puertos
+# Opcional: copiar .env.example a .env si deseas añadir credenciales de Discogs o fijar puertos
 docker compose up --build -d
 
 # Ver el puerto asignado automáticamente (rango 8080-8099 para frontend, 8000-8019 para backend)
@@ -40,7 +40,7 @@ Consulta todos los detalles operativos en la [Guía de despliegue con Docker](do
 ### Opción 2: Desarrollo Local (Python + Node.js)
 
 ```powershell
-# 1. Configurar entorno (opcional para Discogs/Spotify)
+# 1. Configurar entorno (opcional para Discogs)
 Copy-Item .env.example .env
 
 # 2. Backend Python

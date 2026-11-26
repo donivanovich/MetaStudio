@@ -23,7 +23,6 @@ flowchart LR
     MetaAgg --> DZ["Deezer"]
     MetaAgg --> IT["iTunes / Apple Music"]
     MetaAgg --> DG["Discogs (opcional)"]
-    MetaAgg --> SP["Spotify (opcional)"]
     QueueWorker --> AudioProv
     QueueWorker --> FFmpeg["FFmpeg MP3 Encoder"]
     QueueWorker --> ID3["Mutagen ID3v2.3 Writer"]
@@ -38,13 +37,12 @@ Para no simular compatibilidad inexistente y respetar DRM y términos de servici
 1. **Proveedores de Audio (`backend/services/downloader/`)**:
    - Utilizan la API Python de `yt-dlp` (nunca comandos de shell concatenados).
    - Soportan YouTube, YouTube Music y otras fuentes abiertas soportadas por `yt-dlp`.
-   - Enlaces de Spotify, Apple Music o Deezer **no** descargan audio directamente desde dichas plataformas protegidas por DRM; en su lugar, se identifican claramente como fuentes de metadatos (o informan con claridad si no existe fuente de audio descargable autorizada).
+   - Enlaces de Apple Music o Deezer **no** descargan audio directamente desde dichas plataformas protegidas por DRM; en su lugar, se identifican claramente como fuentes de metadatos (o informan con claridad si no existe fuente de audio descargable autorizada).
 2. **Proveedores de Metadatos y Carátulas (`backend/services/metadata/`, `backend/services/artwork/`)**:
    - **MusicBrainz + Cover Art Archive** (abierto, rate-limited 1 req/s).
    - **Deezer Public Search API** (abierto, devuelve metadatos, carátulas `1000×1000` y previsualización autorizada de 30s).
    - **iTunes / Apple Music Search API** (abierto, devuelve metadatos, género original, carátulas hasta `1400×1400`/`3000×3000` y previsualización autorizada de 30s).
    - **Discogs API** (adaptador real activable con `DISCOGS_TOKEN`).
-   - **Spotify Web API** (adaptador real activable con `SPOTIFY_CLIENT_ID` y `SPOTIFY_CLIENT_SECRET`).
 
 ---
 
@@ -104,7 +102,7 @@ Para no simular compatibilidad inexistente y respetar DRM y términos de servici
 | Motor FFmpeg | Detección, verificación y ruta de FFmpeg | `backend/services/audio/ffmpeg_service.py` |
 | Escritor ID3 | Lectura de metadatos originales + escritura estricta de 4 frames | `backend/services/audio/id3_service.py` |
 | Proveedor de audio | Extracción ligera/completa y descarga MP3 con `yt-dlp` | `backend/services/downloader/ytdlp_service.py` |
-| Proveedores musicales | MusicBrainz, Deezer, iTunes, Discogs, Spotify + scoring | `backend/services/metadata/` |
+| Proveedores musicales | MusicBrainz, Deezer, iTunes, Discogs + scoring | `backend/services/metadata/` |
 | Servicio de carátulas | Búsqueda agregada, descarga segura, validación/procesado Pillow | `backend/services/artwork/artwork_service.py` |
 | Catálogo y clasificación | Catálogo versionado de etiquetas + inferencia por género/idioma | `backend/services/classification/` |
 | Orquestador y cola | Procesamiento lazy, cola de descarga, SSE, generador ZIP | `backend/workers/download_manager.py` |

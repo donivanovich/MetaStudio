@@ -11,7 +11,6 @@ PlatformName = Literal[
     "youtube_music",
     "soundcloud",
     "bandcamp",
-    "spotify",
     "apple_music",
     "deezer",
     "other",
@@ -126,19 +125,6 @@ def detect_platform(parsed_url) -> tuple[PlatformName, bool, bool, bool, str | N
     if host.endswith(".bandcamp.com") or host == "bandcamp.com":
         is_pl = "/album/" in path
         return ("bandcamp", is_pl, True, False, None)
-
-    if host in {"open.spotify.com", "play.spotify.com"}:
-        is_pl = "/playlist/" in path or "/album/" in path
-        return (
-            "spotify",
-            is_pl,
-            False,
-            True,
-            (
-                "Spotify está protegido con DRM y no proporciona descarga directa de audio. "
-                "Se pueden consultar metadatos/carátulas si las credenciales de la API están configuradas."
-            ),
-        )
 
     if host in {"music.apple.com", "itunes.apple.com"}:
         is_pl = "/playlist/" in path or "/album/" in path

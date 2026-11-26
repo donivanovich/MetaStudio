@@ -3,7 +3,6 @@
 import asyncio
 import uuid
 
-import httpx
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.models.domain import ArtworkCandidate, TrackState, TrackStatus
@@ -15,7 +14,6 @@ from backend.schemas.api import (
     UpdateMetadataRequest,
 )
 from backend.services.downloader.ytdlp_service import DownloadServiceError, ytdlp_service
-from backend.services.metadata.providers import fetch_spotify_oembed
 from backend.services.storage.store import session_store
 from backend.services.track_processor import track_processor
 from backend.utils.metadata_normalizer import normalize_album_name, normalize_title_and_artists
@@ -42,43 +40,9 @@ async def analyze_url(payload: AnalyzeRequest):
     except URLValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # DRM platforms (Spotify / Apple Music / Deezer): honest metadata-only session
+    # DRM platforms (Apple Music / Deezer): honest metadata-only session
     if validated.metadata_only:
         fallback_title = validated.url.rsplit("/", 1)[-1].split("?")[0] or "Track"
-        init_title = fallback_title
-        init_artists: list[str] = []
-        init_candidates = []
-        init_artworks: list[ArtworkCandidate] = []
-        selected_art_id: str | None = None
-        init_prov: dict[str, str] = {}
-
-        # Extract official public title & cover from Spotify oEmbed whenever a Spotify URL is pasted
-        if validated.platform == "spotify":
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                sp_oembed = await fetch_spotify_oembed(client, validated.url)
-            if sp_oembed is not None:
-                init_title = sp_oembed.title or fallback_title
-                init_artists = list(sp_oembed.artists)
-                init_candidates.append(sp_oembed)
-                init_prov["title"] = "Spotify"
-                if init_artists:
-                    init_prov["artists"] = "Spotify"
-                if sp_oembed.artwork_url:
-                    art_id = f"art-{uuid.uuid4().hex[:8]}"
-                    init_artworks.append(
-                        ArtworkCandidate(
-                            id=art_id,
-                            source="Spotify",
-                            url=sp_oembed.artwork_url,
-                            width=300,
-                            height=300,
-                            format="jpeg",
-                            selected=True,
-                        )
-                    )
-                    selected_art_id = art_id
-                    init_prov["artwork"] = "Spotify"
-
         track = TrackState(
             id=f"trk-{uuid.uuid4().hex[:10]}",
             index=0,
@@ -87,15 +51,11 @@ async def analyze_url(payload: AnalyzeRequest):
             platform=validated.platform,
             audio_downloadable=False,
             status=TrackStatus.PENDING,
-            raw_title=init_title,
-            title=init_title,
-            artists=init_artists,
+            raw_title=fallback_title,
+            title=fallback_title,
+            artists=[],
             album="",
             album_auto_synced=True,
-            selected_artwork_id=selected_art_id,
-            artwork_candidates=init_artworks,
-            metadata_candidates=init_candidates,
-            metadata_provenance=init_prov,
         )
         session = session_store.create_session(
             source_url=validated.url,

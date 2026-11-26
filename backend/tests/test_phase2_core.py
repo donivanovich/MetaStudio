@@ -35,11 +35,11 @@ def test_validate_youtube_single_and_playlist_urls():
 
 
 def test_validate_drm_platforms_marked_metadata_only():
-    sp = validate_url("https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT", resolve_dns=False)
-    assert sp.platform == "spotify"
-    assert sp.audio_downloadable is False
-    assert sp.metadata_only is True
-    assert sp.notice is not None
+    dz = validate_url("https://www.deezer.com/track/12345", resolve_dns=False)
+    assert dz.platform == "deezer"
+    assert dz.audio_downloadable is False
+    assert dz.metadata_only is True
+    assert dz.notice is not None
 
     am = validate_url("https://music.apple.com/es/album/example/12345", resolve_dns=False)
     assert am.platform == "apple_music"

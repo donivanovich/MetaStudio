@@ -19,7 +19,6 @@ from backend.services.audio.ffmpeg_service import FFmpegStatus, verify_ffmpeg
 from backend.services.classification.classifier import classify_track_enrichment_hook
 from backend.services.downloader.ytdlp_service import ytdlp_service
 from backend.services.metadata.aggregator import enrich_track_metadata_and_artwork
-from backend.services.metadata.providers import get_spotify_runtime_status
 from backend.services.track_processor import track_processor
 
 logger = logging.getLogger("metastudio")
@@ -115,11 +114,7 @@ def create_app() -> FastAPI:
                 "deezer": True,
                 "itunes": True,
                 "discogs": bool(settings.discogs_token),
-                "spotify": bool(
-                    settings.spotify_client_id and settings.spotify_client_secret
-                ),
             },
-            "spotify_status": get_spotify_runtime_status(),
         }
 
     track_processor.register_enrichment_hook(enrich_track_metadata_and_artwork)

@@ -52,13 +52,13 @@ flowchart LR
 docker compose up --build -d
 ```
 
-### Opción B: Con configuración personalizada (Discogs / Spotify / puertos)
+### Opción B: Con configuración personalizada (Discogs / puertos)
 
 ```bash
 # 1. Copiar plantilla de entorno
 cp .env.example .env
 
-# 2. Editar .env (opcional: DISCOGS_TOKEN, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, FRONTEND_PORT, etc.)
+# 2. Editar .env (opcional: DISCOGS_TOKEN, FRONTEND_PORT, etc.)
 
 # 3. Construir e iniciar los contenedores en segundo plano
 docker compose up --build -d
@@ -94,7 +94,6 @@ Todas las variables de `.env` son opcionales y pueden sobrescribirse mediante `.
 | `RATE_LIMIT_PER_MINUTE` | `60` | Límite de peticiones API por minuto e IP |
 | `MUSICBRAINZ_USER_AGENT` | `MetaStudio/1.0.0 (...)` | User-Agent enviado a MusicBrainz |
 | `DISCOGS_TOKEN` | *(vacío)* | Token opcional para activar el proveedor Discogs |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | *(vacío)* | Credenciales opcionales para activar Spotify Web API |
 
 ---
 

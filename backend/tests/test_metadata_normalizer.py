@@ -15,7 +15,6 @@ from backend.services.downloader.ytdlp_service import (
 )
 from backend.services.metadata.aggregator import enrich_track_metadata_and_artwork
 from backend.services.metadata.providers import (
-    fetch_spotify_oembed,
     parse_deezer_payload,
     parse_itunes_payload,
     search_deezer,
@@ -277,14 +276,14 @@ def test_album_normalization_strips_single_and_feat_and_unwraps_remix():
 @pytest.mark.asyncio
 async def test_youtube_jpeg_artwork_is_default_first_and_origin_candidate_is_preserved(monkeypatch):
     async def _fake_search(title, artists, duration_seconds=None):
-        sp = MetadataSourceCandidate(
-            source="Spotify",
+        dz = MetadataSourceCandidate(
+            source="Deezer",
             title="LA VERDAD remix",
             artists=["Artista 1", "Artista 2"],
             album="LA VERDAD remix",
             duration_seconds=210,
             confidence=0.95,
-            artwork_url="https://i.scdn.co/image/spotify_640.jpg",
+            artwork_url="https://cdn-images.dzcdn.net/images/cover/1000x1000.jpg",
         )
         am = MetadataSourceCandidate(
             source="Apple Music",
@@ -296,8 +295,8 @@ async def test_youtube_jpeg_artwork_is_default_first_and_origin_candidate_is_pre
             artwork_url="https://is1.mzstatic.com/image/1400x1400bb.jpg",
         )
         return (
-            [sp, am],
-            {"title": "Spotify", "artists": "Spotify", "album": "Apple Music"},
+            [dz, am],
+            {"title": "Deezer", "artists": "Apple Music", "album": "Apple Music"},
             {"title": "LA VERDAD remix", "artists": ["Artista 1", "Artista 2"], "album": "Album Oficial"},
         )
 
@@ -340,7 +339,7 @@ async def test_youtube_jpeg_artwork_is_default_first_and_origin_candidate_is_pre
     assert track.artwork_candidates[0].format == "jpeg"
     assert track.selected_artwork_id == "art-yt1"
     assert track.artwork_candidates[0].selected is True
-    assert {c.source for c in track.metadata_candidates} == {"Spotify", "Apple Music", "YouTube"}
+    assert {c.source for c in track.metadata_candidates} == {"Deezer", "Apple Music", "YouTube"}
 
 
 @pytest.mark.asyncio
@@ -403,28 +402,3 @@ async def test_yt_music_album_is_default_and_apple_music_artists_is_default(monk
     assert track.metadata_provenance["album"] == "YouTube Music"
     assert track.artists == ["Artista 1", "Artista 2", "Artista 3"]
     assert track.metadata_provenance["artists"] == "Apple Music"
-
-
-@pytest.mark.asyncio
-async def test_fetch_spotify_oembed_extracts_title_and_artwork():
-    def _handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/oembed":
-            return httpx.Response(
-                200,
-                json={
-                    "title": "LA VERDAD (remix) feat. Artista 2",
-                    "thumbnail_url": "https://image-cdn-ak.spotifycdn.com/image/sample",
-                },
-            )
-        return httpx.Response(404)
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(_handler)) as client:
-        cand = await fetch_spotify_oembed(
-            client, "https://open.spotify.com/track/47EiUVwUp4C9fGccaPuUCS"
-        )
-
-    assert cand is not None
-    assert cand.source == "Spotify"
-    assert cand.title == "LA VERDAD remix"
-    assert cand.artists == ["Artista 2"]
-    assert cand.artwork_url == "https://image-cdn-ak.spotifycdn.com/image/sample"

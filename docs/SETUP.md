@@ -36,12 +36,11 @@ Variables principales en `.env`:
 | `PLAYLIST_DOWNLOAD_CONCURRENCY` | Concurrencia controlada para playlists (`1`–`5`, por defecto `2`) | No |
 | `MUSICBRAINZ_USER_AGENT` | User-Agent requerido por la API de MusicBrainz | No |
 | `DISCOGS_TOKEN` | Personal Access Token de [Discogs Developers](https://www.discogs.com/settings/developers) | Opcional |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Credenciales Client Credentials de [Spotify Dashboard](https://developer.spotify.com/dashboard) | Opcional |
 | `VITE_API_BASE_URL` | URL base del backend cuando frontend y backend se despliegan por separado | No (en dev Vite usa proxy; en Docker Nginx usa proxy) |
 | `FRONTEND_PORT` | Puerto o rango público expuesto por Nginx en Docker Compose (`8080-8099`, salta puertos ocupados) | No (solo Docker) |
 | `BACKEND_HOST_PORT` | Puerto o rango público expuesto por FastAPI en Docker Compose (`8000-8019`, salta puertos ocupados) | No (solo Docker) |
 
-> **Nota:** **MusicBrainz**, **Deezer** e **iTunes / Apple Music** funcionan directamente sin claves API. Discogs y Spotify se activan automáticamente al introducir sus credenciales en `.env` (nunca se exponen al frontend).
+> **Nota:** **MusicBrainz**, **Deezer** e **iTunes / Apple Music** funcionan directamente sin claves API. Discogs se activa automáticamente al introducir su token en `.env` (nunca se expone al frontend).
 
 ---
 
@@ -129,5 +128,5 @@ npm --prefix frontend run build
 
 - **`FFmpeg no encontrado`**: Comprueba `GET /api/v1/health`. Instala FFmpeg globalmente o reinstala `imageio-ffmpeg` dentro de `backend\.venv`.
 - **Error al extraer URL de YouTube**: Actualiza `yt-dlp` (`pip install -U yt-dlp`). Comprueba que el vídeo/playlist sea público y accesible sin DRM.
-- **Enlace de Spotify / Apple Music / Deezer no descarga audio**: Por diseño legal y técnico, las plataformas con DRM no permiten descarga directa de audio; MetaStudio las utiliza como proveedores de metadatos, carátulas y previsualizaciones autorizadas.
+- **Enlace de Apple Music / Deezer no descarga audio**: Por diseño legal y técnico, las plataformas con DRM no permiten descarga directa de audio; MetaStudio las utiliza como proveedores de metadatos, carátulas y previsualizaciones autorizadas.
 - **CORS bloqueado al desplegar por separado**: Añade el dominio del frontend a `CORS_ORIGINS` en `.env` y configura `VITE_API_BASE_URL` en el build del frontend.

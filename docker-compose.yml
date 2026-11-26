@@ -20,8 +20,6 @@ services:
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
       MUSICBRAINZ_USER_AGENT: ${MUSICBRAINZ_USER_AGENT:-MetaStudio/1.0.0 (https://github.com/donivanovich/MetaStudio)}
       DISCOGS_TOKEN: ${DISCOGS_TOKEN:-}
-      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
-      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
     ports:
       - "${BACKEND_HOST_PORT:-8000-8019}:8000"
     volumes:

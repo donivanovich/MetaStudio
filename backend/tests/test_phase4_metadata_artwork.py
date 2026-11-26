@@ -16,7 +16,6 @@ from backend.services.metadata.providers import (
     parse_discogs_payload,
     parse_itunes_payload,
     parse_musicbrainz_payload,
-    parse_spotify_payload,
 )
 from backend.services.metadata.scoring import rank_and_combine_candidates
 
@@ -127,26 +126,6 @@ def test_provider_parsers_preserve_structure():
     )
     assert dg[0].artists == ["Bad Bunny"]
     assert "Reggaeton" in dg[0].genres
-
-    sp = parse_spotify_payload(
-        {
-            "tracks": {
-                "items": [
-                    {
-                        "id": "sp1",
-                        "name": "Dakiti",
-                        "duration_ms": 205000,
-                        "artists": [{"name": "Bad Bunny"}, {"name": "Jhayco"}],
-                        "album": {
-                            "name": "EL ÚLTIMO TOUR DEL MUNDO",
-                            "images": [{"url": "https://i.scdn.co/image/abc"}],
-                        },
-                    }
-                ]
-            }
-        }
-    )
-    assert sp[0].artists == ["Bad Bunny", "Jhayco"]
 
 
 def test_pillow_artwork_validation_and_rejection():

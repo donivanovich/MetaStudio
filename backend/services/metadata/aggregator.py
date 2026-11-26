@@ -17,7 +17,6 @@ from backend.services.metadata.providers import (
     search_discogs,
     search_itunes,
     search_musicbrainz,
-    search_spotify,
 )
 from backend.services.metadata.scoring import normalize_text, rank_and_combine_candidates
 from backend.services.storage.store import session_store
@@ -32,7 +31,6 @@ from backend.utils.metadata_normalizer import (
 logger = logging.getLogger(__name__)
 
 _DEFAULT_ARTWORK_DIMENSIONS: dict[str, tuple[int, int]] = {
-    "Spotify": (640, 640),
     "Apple Music": (1400, 1400),
     "Deezer": (1000, 1000),
     "MusicBrainz": (500, 500),
@@ -60,7 +58,6 @@ async def search_all_metadata_providers(
             search_itunes(client, title, artists),
             search_musicbrainz(client, title, artists),
             search_discogs(client, title, artists),
-            search_spotify(client, title, artists),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -119,12 +116,6 @@ async def enrich_track_metadata_and_artwork(
             },
         )
 
-    # Preserve any pre-existing Spotify oEmbed candidate (e.g. from direct open.spotify.com URLs)
-    existing_spotify = next(
-        (c for c in track.metadata_candidates if c.source == "Spotify"),
-        None,
-    )
-
     ranked, provenance, combined = await search_all_metadata_providers(
         title=track.title,
         artists=track.artists,
@@ -136,8 +127,6 @@ async def enrich_track_metadata_and_artwork(
         return
 
     candidates_with_origin = list(ranked)
-    if existing_spotify and all(c.source != "Spotify" for c in candidates_with_origin):
-        candidates_with_origin.append(existing_spotify)
     if existing_origin and all(c.source != existing_origin.source for c in candidates_with_origin):
         candidates_with_origin.append(existing_origin)
     track.metadata_candidates = candidates_with_origin

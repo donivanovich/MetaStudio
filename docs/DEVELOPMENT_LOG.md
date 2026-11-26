@@ -383,3 +383,13 @@ Fase 11 implementada, verificada en contenedores vivos y lista en `main`.
 - `frontend/src/components/MetadataEditorColumn.tsx`
 - `frontend/src/components/SourcesArtworkColumn.tsx`
 - `docs/DEVELOPMENT_LOG.md`
+
+---
+
+## 2026-11-26 — Fase 14: Eliminación completa de Spotify, selector desplegable integrado por campo y mejoras UI
+
+### Implementación
+- Eliminado completamente el proveedor, credenciales, tokens, avisos, tarjetas y referencias de Spotify de todo el proyecto (backend, frontend, Docker Compose, `.env`, `.env.example`, tests y documentación).
+- Reemplazado el indicador estático del proveedor activo a la derecha de los encabezados (*Nombre de la canción*, *Artistas*, *Álbum*) por un selector desplegable personalizado (`FieldSourceSelect`) integrado con el diseño oscuro de MetaStudio, con ítems clicables (`SelectItem`) que muestran cada fuente y su vista previa normalizada.
+- Eliminada la ayuda redundante *"Separados por coma y espacio · ej. Bad Bunny, Feid"* debajo del campo *Artistas*.
+- Cambiado el botón principal de cabecera de *"Analizar"* / *"Analizando..."* a *"Extraer"* / *"Extrayendo..."*.

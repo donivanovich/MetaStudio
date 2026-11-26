@@ -11,7 +11,7 @@ Estados posibles: `Pendiente` | `En desarrollo` | `Implementada` | `Probada` | `
 | 2 | Validación de URLs, detección de plataforma y SSRF | Probada | `backend/utils/url_validator.py`, `backend/tests/test_phase2_core.py` |
 | 2 | Integración `yt-dlp` (extracción y descarga) | Probada | `backend/services/downloader/ytdlp_service.py`, `backend/tests/test_phase2_core.py` |
 | 3 | Análisis de playlists (`extract_flat`), sesiones y lazy loading | Probada | `backend/models/domain.py`, `backend/schemas/api.py`, `backend/services/storage/store.py`, `backend/services/track_processor.py`, `backend/api/sessions.py` |
-| 4 | Proveedores de metadatos (MusicBrainz, Deezer, iTunes, Discogs, Spotify) y scoring | Probada | `backend/services/metadata/scoring.py`, `backend/services/metadata/providers.py`, `backend/services/metadata/aggregator.py` |
+| 4 | Proveedores de metadatos (MusicBrainz, Deezer, iTunes, Discogs) y scoring | Probada | `backend/services/metadata/scoring.py`, `backend/services/metadata/providers.py`, `backend/services/metadata/aggregator.py` |
 | 4 | Búsqueda independiente de carátulas y subida personalizada (Pillow) | Probada | `backend/services/artwork/artwork_service.py`, `backend/api/artwork.py` |
 | 5 | Catálogo versionado de etiquetas e inferencia inteligente (idioma y ánimo) | Probada | `backend/services/classification/catalog.py`, `backend/services/classification/classifier.py`, `backend/services/audio/id3_service.py`, `backend/api/tags.py` |
 | 6 | Frontend SPA (diseño 3 columnas Lovable, editor 4 campos, reproductor, fuentes, etiquetas) | Probada | `frontend/src/App.tsx`, `frontend/src/components/*`, `frontend/src/services/api.ts`, `frontend/src/types/music.ts`, `frontend/src/index.css` |

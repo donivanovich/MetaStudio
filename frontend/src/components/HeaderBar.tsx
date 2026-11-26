@@ -11,7 +11,7 @@ interface HeaderBarProps {
   ffmpegAvailable: boolean | null;
 }
 
-const PLATFORMS = ["YT Music", "YouTube", "SoundCloud", "Spotify"];
+const PLATFORMS = ["YT Music", "YouTube", "SoundCloud"];
 
 export function HeaderBar({
   url,
@@ -93,7 +93,7 @@ export function HeaderBar({
           ) : (
             <Sparkles className="size-4" />
           )}
-          <span>{analyzing ? "Analizando..." : "Analizar"}</span>
+          <span>{analyzing ? "Extrayendo..." : "Extraer"}</span>
         </button>
       </form>
     </header>

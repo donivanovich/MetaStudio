@@ -53,7 +53,7 @@ Cada etiqueta tiene:
 ## Fuentes de Detección e Inferencia
 
 1. **Metadatos originales de archivo / extracción** (`TCON` género, `TLAN` idioma, etiquetas de extracción `yt-dlp`).
-2. **Proveedores musicales** (género principal de iTunes/Deezer, tags comunitarios de MusicBrainz, estilos de Discogs, atributos de Spotify si está configurado).
+2. **Proveedores musicales** (género principal de iTunes/Deezer, tags comunitarios de MusicBrainz, estilos de Discogs).
 3. **Heurísticas ponderadas con umbral de confianza**:
    - Cada sugerencia devuelve `{ tag_id, category, confidence, source, rationale }`.
    - Si una señal no alcanza el umbral mínimo de confianza (`>= 0.55`), no se inventa la etiqueta.

@@ -41,8 +41,6 @@ class Settings(BaseSettings):
         default="MetaStudio/1.0.0 (https://github.com/donivanovich/MetaStudio)"
     )
     discogs_token: str = Field(default="")
-    spotify_client_id: str = Field(default="")
-    spotify_client_secret: str = Field(default="")
 
     @property
     def cors_origin_list(self) -> list[str]:
