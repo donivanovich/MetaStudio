@@ -23,7 +23,7 @@ services:
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_HOST_PORT:-8000-8019}:8000"
     volumes:
       - metastudio_data:/app/backend/data
       - metastudio_tmp:/app/backend/tmp
@@ -51,7 +51,7 @@ services:
         # Empty base URL routes /api/v1/* through the Nginx reverse proxy on the same origin
         VITE_API_BASE_URL: ""
     ports:
-      - "${FRONTEND_PORT:-8080}:80"
+      - "${FRONTEND_PORT:-8080-8099}:80"
     depends_on:
       backend:
         condition: service_healthy

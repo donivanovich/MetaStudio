@@ -278,7 +278,8 @@ Permitir desplegar y ejecutar MetaStudio de forma reproducible en cualquier ento
 ### Validación
 - [x] Validación de esquema y resolución de variables con `docker compose config` (código de salida `0`, sin advertencias).
 - [x] Revisión de contextos de build (`.dockerignore` y `frontend/.dockerignore`), cabeceras proxy/SSE en Nginx y aislamiento de permisos no-root.
-- [ ] Build y ejecución en vivo de contenedores pendiente de iniciar el motor de Docker Desktop en el equipo local (`dockerDesktopLinuxEngine` detenido durante la sesión).
+- [x] Build y ejecución real en Docker Desktop (`docker compose up -d`), verificando asignación automática en rango (`8080-8099` → `8081` al estar `8080` ocupado, `8000-8019` → `8000`).
+- [x] Verificación en vivo de `/healthz`, proxy inverso `/api/v1/health` (FFmpeg nativo 7.1.5 `system_path`, `yt-dlp`) y suite completa de pruebas dentro del contenedor (`docker compose exec -T backend pytest backend/tests/ -q`: 32/32 pasadas).
 
 ### Resultado
-Dockerización y documentación operativa completadas y listas para levantar con `docker compose up --build -d`.
+Dockerización con rangos de puertos automáticos y documentación operativa completadas, probadas en vivo y subidas al repositorio.

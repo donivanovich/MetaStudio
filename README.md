@@ -27,11 +27,14 @@ Aplicación web profesional cliente-servidor para descargar canciones y playlist
 Requiere **Docker** y **Docker Compose v2** (incluye FFmpeg nativo, Nginx reverse proxy con soporte SSE y volúmenes persistentes):
 
 ```bash
-# Opcional: copiar .env.example a .env si deseas añadir credenciales de Discogs/Spotify o cambiar puertos
+# Opcional: copiar .env.example a .env si deseas añadir credenciales de Discogs/Spotify o fijar puertos
 docker compose up --build -d
+
+# Ver el puerto asignado automáticamente (rango 8080-8099 para frontend, 8000-8019 para backend)
+docker compose ps
 ```
 
-Abre `http://localhost:8080` en tu navegador (API y Swagger disponibles en `http://localhost:8000/docs`).  
+Abre la URL asignada al servicio `frontend` (por defecto `http://localhost:8080`, o el siguiente puerto libre del rango `8080-8099` si está ocupado).  
 Consulta todos los detalles operativos en la [Guía de despliegue con Docker](docs/DOCKER.md).
 
 ### Opción 2: Desarrollo Local (Python + Node.js)

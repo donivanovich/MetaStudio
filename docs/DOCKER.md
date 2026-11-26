@@ -20,8 +20,8 @@ flowchart LR
 
 | Servicio | Imagen Base | Puerto Interno | Puerto Host (por defecto) | Responsabilidad |
 | --- | --- | --- | --- | --- |
-| `frontend` | `node:22-alpine` → `nginx:1.27-alpine` (multi-stage) | `80` | `8080` (`FRONTEND_PORT`) | Sirve la SPA compilada y actúa como reverse proxy hacia `/api/*` (con soporte dedicado para SSE y subidas de carátulas hasta 30 MB). |
-| `backend` | `python:3.12-slim` + `ffmpeg` | `8000` | `8000` (`BACKEND_PORT`) | Ejecuta FastAPI, `yt-dlp`, FFmpeg nativo, Mutagen (ID3v2.3), Pillow y la cola asíncrona de descargas/ZIP. |
+| `frontend` | `node:22-alpine` → `nginx:1.27-alpine` (multi-stage) | `80` | `8080-8099` (`FRONTEND_PORT`, elige el primer puerto libre) | Sirve la SPA compilada y actúa como reverse proxy hacia `/api/*` (con soporte dedicado para SSE y subidas de carátulas hasta 30 MB). |
+| `backend` | `python:3.12-slim` + `ffmpeg` | `8000` | `8000-8019` (`BACKEND_HOST_PORT`, elige el primer puerto libre) | Ejecuta FastAPI, `yt-dlp`, FFmpeg nativo, Mutagen (ID3v2.3), Pillow y la cola asíncrona de descargas/ZIP. |
 
 ### Decisiones Clave de Contenerización
 
@@ -66,9 +66,16 @@ docker compose up --build -d
 
 ### URLs disponibles
 
-- **Aplicación Web (Frontend + Proxy API)**: `http://localhost:8080`
-- **Healthcheck Backend**: `http://localhost:8000/api/v1/health`
-- **Documentación OpenAPI / Swagger**: `http://localhost:8000/docs`
+Docker asigna automáticamente el primer puerto libre dentro del rango (`8080-8099` para el frontend y `8000-8019` para el backend). Para ver el puerto exacto asignado:
+
+```bash
+docker compose port frontend 80
+docker compose port backend 8000
+```
+
+- **Aplicación Web (Frontend + Proxy API)**: `http://localhost:<puerto-frontend>` (p. ej. `http://localhost:8080`, o `http://localhost:8081` si el `8080` está ocupado)
+- **Healthcheck Backend**: `http://localhost:<puerto-backend>/api/v1/health`
+- **Documentación OpenAPI / Swagger**: `http://localhost:<puerto-backend>/docs`
 
 ---
 
@@ -78,8 +85,8 @@ Todas las variables de `.env` son opcionales y pueden sobrescribirse mediante `.
 
 | Variable | Valor por defecto en Docker | Descripción |
 | --- | --- | --- |
-| `FRONTEND_PORT` | `8080` | Puerto del host expuesto por Nginx |
-| `BACKEND_PORT` | `8000` | Puerto del host expuesto directamente por FastAPI |
+| `FRONTEND_PORT` | `8080-8099` | Puerto o rango de puertos del host para Nginx (si un puerto está ocupado pasa al siguiente libre) |
+| `BACKEND_HOST_PORT` | `8000-8019` | Puerto o rango de puertos del host para FastAPI (si un puerto está ocupado pasa al siguiente libre) |
 | `CORS_ORIGINS` | `http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173` | Orígenes CORS aceptados si se consume la API directamente |
 | `AUDIO_MP3_BITRATE` | `320` | Bitrate MP3 de exportación (`96`–`320` kbps) |
 | `PLAYLIST_DOWNLOAD_CONCURRENCY` | `2` | Concurrencia en descargas de playlists (`1`–`5`) |
@@ -137,7 +144,7 @@ docker compose up -d backend
 
 ## 7. Solución de Problemas en Docker
 
-- **El puerto `8080` u `8000` ya está ocupado**: Define `FRONTEND_PORT=3000` o `BACKEND_PORT=8001` en `.env` y vuelve a ejecutar `docker compose up -d`.
+- **Todo el rango de puertos (`8080-8099` u `8000-8019`) está ocupado o quieres un puerto fijo**: Define `FRONTEND_PORT=3000` o `BACKEND_HOST_PORT=8050` en `.env` y vuelve a ejecutar `docker compose up -d`. Para consultar qué puerto del rango fue asignado automáticamente, ejecuta `docker compose ps` o `docker compose port frontend 80`.
 - **Error `open //./pipe/dockerDesktopLinuxEngine`**: El motor de Docker Desktop no está iniciado. Abre Docker Desktop y espera a que muestre el estado *Engine running*.
 - **Error al descargar de YouTube tras varias semanas**: Reconstruye el backend sin caché (`docker compose build --no-cache backend && docker compose up -d backend`) para obtener la versión más reciente de `yt-dlp`.
 - **Despliegue detrás de otro proxy inverso (Traefik, Caddy, Cloudflare Tunnel)**: Asegúrate de desactivar el buffering de respuesta en la ruta `/api/v1/jobs/*/events` para que el progreso SSE se entregue en tiempo real.

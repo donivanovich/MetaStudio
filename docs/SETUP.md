@@ -38,7 +38,8 @@ Variables principales en `.env`:
 | `DISCOGS_TOKEN` | Personal Access Token de [Discogs Developers](https://www.discogs.com/settings/developers) | Opcional |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Credenciales Client Credentials de [Spotify Dashboard](https://developer.spotify.com/dashboard) | Opcional |
 | `VITE_API_BASE_URL` | URL base del backend cuando frontend y backend se despliegan por separado | No (en dev Vite usa proxy; en Docker Nginx usa proxy) |
-| `FRONTEND_PORT` | Puerto público expuesto por el contenedor Nginx al usar Docker Compose (`8080`) | No (solo Docker) |
+| `FRONTEND_PORT` | Puerto o rango público expuesto por Nginx en Docker Compose (`8080-8099`, salta puertos ocupados) | No (solo Docker) |
+| `BACKEND_HOST_PORT` | Puerto o rango público expuesto por FastAPI en Docker Compose (`8000-8019`, salta puertos ocupados) | No (solo Docker) |
 
 > **Nota:** **MusicBrainz**, **Deezer** e **iTunes / Apple Music** funcionan directamente sin claves API. Discogs y Spotify se activan automáticamente al introducir sus credenciales en `.env` (nunca se exponen al frontend).
 
