@@ -27,15 +27,18 @@ Aplicación web profesional cliente-servidor para descargar canciones y playlist
 Requiere **Docker** y **Docker Compose v2** (incluye FFmpeg nativo, Nginx reverse proxy con soporte SSE y volúmenes persistentes):
 
 ```bash
-# Opcional: copiar .env.example a .env si deseas añadir credenciales de Discogs o fijar puertos
-docker compose up --build -d
+# Linux / macOS / Raspberry Pi (elige automáticamente el primer puerto libre y lo mantiene estable entre cambios)
+./scripts/docker-up.sh
 
-# Ver el puerto asignado automáticamente (rango 8080-8099 para frontend, 8000-8019 para backend)
-docker compose ps
+# Windows PowerShell
+.\scripts\docker-up.ps1
+
+# O directamente con Docker Compose (puertos fijos definidos en .env o 8080/8000 por defecto)
+docker compose up --build -d
 ```
 
-Abre la URL asignada al servicio `frontend` (por defecto `http://localhost:8080`, o el siguiente puerto libre del rango `8080-8099` si está ocupado).  
-Consulta todos los detalles operativos en la [Guía de despliegue con Docker](docs/DOCKER.md).
+Abre la URL que indique el script (por defecto `http://localhost:8080`, o el primer puerto libre si `8080` está ocupado por otro servicio).  
+Consulta la guía completa (incluyendo despliegue en **Raspberry Pi**) en [docs/DOCKER.md](docs/DOCKER.md).
 
 ### Opción 2: Desarrollo Local (Python + Node.js)
 

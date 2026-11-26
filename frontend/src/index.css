@@ -50,7 +50,7 @@
   --input: oklch(100% 0 0 / 0.1);
   --ring: oklch(88% 0.19 128 / 0.6);
   --lang: oklch(78% 0.12 230);
-  --mood: oklch(80% 0.13 50);
+  --mood: var(--primary);
 }
 
 * {

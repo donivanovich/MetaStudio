@@ -20,8 +20,8 @@ flowchart LR
 
 | Servicio | Imagen Base | Puerto Interno | Puerto Host (por defecto) | Responsabilidad |
 | --- | --- | --- | --- | --- |
-| `frontend` | `node:22-alpine` → `nginx:1.27-alpine` (multi-stage) | `80` | `8080-8099` (`FRONTEND_PORT`, elige el primer puerto libre) | Sirve la SPA compilada y actúa como reverse proxy hacia `/api/*` (con soporte dedicado para SSE y subidas de carátulas hasta 30 MB). |
-| `backend` | `python:3.12-slim` + `ffmpeg` | `8000` | `8000-8019` (`BACKEND_HOST_PORT`, elige el primer puerto libre) | Ejecuta FastAPI, `yt-dlp`, FFmpeg nativo, Mutagen (ID3v2.3), Pillow y la cola asíncrona de descargas/ZIP. |
+| `frontend` | `node:22-alpine` → `nginx:1.27-alpine` (multi-stage) | `80` | `8080` (`FRONTEND_PORT`, estable; los scripts `scripts/docker-up.*` saltan solo puertos ocupados por otras apps en `8080-8099`) | Sirve la SPA compilada y actúa como reverse proxy hacia `/api/*` (con soporte dedicado para SSE y subidas de carátulas hasta 30 MB). |
+| `backend` | `python:3.12-slim` + `ffmpeg` | `8000` | `8000` (`BACKEND_HOST_PORT`, estable; los scripts `scripts/docker-up.*` saltan solo puertos ocupados por otras apps en `8000-8019`) | Ejecuta FastAPI, `yt-dlp`, FFmpeg nativo, Mutagen (ID3v2.3), Pillow y la cola asíncrona de descargas/ZIP. |
 
 ### Decisiones Clave de Contenerización
 
@@ -44,21 +44,27 @@ flowchart LR
 
 ## 3. Inicio Rápido con Docker Compose
 
-### Opción A: Arrancar directamente (sin archivo `.env`)
+### Opción A: Arrancar con selección inteligente y estable de puertos (Recomendado)
 
-`docker-compose.yml` incluye valores por defecto seguros y no exige `.env` (MusicBrainz, Deezer e iTunes funcionan sin claves):
+Los scripts incluidos (`scripts/docker-up.sh` en Linux/macOS/Raspberry Pi y `scripts/docker-up.ps1` en Windows) comprueban el rango `8080-8099` (frontend) y `8000-8019` (backend):
+- Si el puerto ya pertenece a **MetaStudio**, **lo mantiene exactamente igual** al reconstruir tras hacer cambios.
+- Solo avanza al siguiente puerto libre si está ocupado por **otra web o servicio externo**, y guarda el puerto elegido en `.env`.
 
 ```bash
-docker compose up --build -d
+# Linux / macOS / Raspberry Pi
+./scripts/docker-up.sh
+
+# Windows (PowerShell)
+.\scripts\docker-up.ps1
 ```
 
-### Opción B: Con configuración personalizada (Discogs / puertos)
+### Opción B: Con Docker Compose directamente (puertos fijos)
 
 ```bash
-# 1. Copiar plantilla de entorno
+# 1. Copiar plantilla de entorno (opcional)
 cp .env.example .env
 
-# 2. Editar .env (opcional: DISCOGS_TOKEN, FRONTEND_PORT, etc.)
+# 2. Editar .env (opcional: DISCOGS_TOKEN, FRONTEND_PORT, BACKEND_HOST_PORT, etc.)
 
 # 3. Construir e iniciar los contenedores en segundo plano
 docker compose up --build -d
@@ -66,16 +72,16 @@ docker compose up --build -d
 
 ### URLs disponibles
 
-Docker asigna automáticamente el primer puerto libre dentro del rango (`8080-8099` para el frontend y `8000-8019` para el backend). Para ver el puerto exacto asignado:
+Para consultar el puerto exacto asignado en cualquier momento:
 
 ```bash
 docker compose port frontend 80
 docker compose port backend 8000
 ```
 
-- **Aplicación Web (Frontend + Proxy API)**: `http://localhost:<puerto-frontend>` (p. ej. `http://localhost:8080`, o `http://localhost:8081` si el `8080` está ocupado)
-- **Healthcheck Backend**: `http://localhost:<puerto-backend>/api/v1/health`
-- **Documentación OpenAPI / Swagger**: `http://localhost:<puerto-backend>/docs`
+- **Aplicación Web (Frontend + Proxy API)**: `http://localhost:<FRONTEND_PORT>` (p. ej. `http://localhost:8080`)
+- **Healthcheck Backend**: `http://localhost:<BACKEND_HOST_PORT>/api/v1/health`
+- **Documentación OpenAPI / Swagger**: `http://localhost:<BACKEND_HOST_PORT>/docs`
 
 ---
 
@@ -85,8 +91,8 @@ Todas las variables de `.env` son opcionales y pueden sobrescribirse mediante `.
 
 | Variable | Valor por defecto en Docker | Descripción |
 | --- | --- | --- |
-| `FRONTEND_PORT` | `8080-8099` | Puerto o rango de puertos del host para Nginx (si un puerto está ocupado pasa al siguiente libre) |
-| `BACKEND_HOST_PORT` | `8000-8019` | Puerto o rango de puertos del host para FastAPI (si un puerto está ocupado pasa al siguiente libre) |
+| `FRONTEND_PORT` | `8080` | Puerto fijo del host para Nginx (los scripts `docker-up.*` eligen automáticamente el primer libre en `8080-8099` y lo fijan) |
+| `BACKEND_HOST_PORT` | `8000` | Puerto fijo del host para FastAPI (los scripts `docker-up.*` eligen automáticamente el primer libre en `8000-8019` y lo fijan) |
 | `CORS_ORIGINS` | `http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173` | Orígenes CORS aceptados si se consume la API directamente |
 | `AUDIO_MP3_BITRATE` | `320` | Bitrate MP3 de exportación (`96`–`320` kbps) |
 | `PLAYLIST_DOWNLOAD_CONCURRENCY` | `2` | Concurrencia en descargas de playlists (`1`–`5`) |
@@ -147,3 +153,58 @@ docker compose up -d backend
 - **Error `open //./pipe/dockerDesktopLinuxEngine`**: El motor de Docker Desktop no está iniciado. Abre Docker Desktop y espera a que muestre el estado *Engine running*.
 - **Error al descargar de YouTube tras varias semanas**: Reconstruye el backend sin caché (`docker compose build --no-cache backend && docker compose up -d backend`) para obtener la versión más reciente de `yt-dlp`.
 - **Despliegue detrás de otro proxy inverso (Traefik, Caddy, Cloudflare Tunnel)**: Asegúrate de desactivar el buffering de respuesta en la ruta `/api/v1/jobs/*/events` para que el progreso SSE se entregue en tiempo real.
+
+---
+
+## 8. Despliegue en Raspberry Pi (ARM64)
+
+Todas las imágenes base de MetaStudio (`python:3.12-slim`, `node:22-alpine`, `nginx:1.27-alpine`) y `ffmpeg` son **multi-arquitectura oficiales (`linux/arm64`)**. Se recomienda **Raspberry Pi OS 64-bit** en Raspberry Pi 3B+, 4 o 5.
+
+### 1. Instalar Docker y Docker Compose en la Raspberry Pi
+
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker "$USER"
+newgrp docker
+docker --version && docker compose version
+```
+
+### 2. Clonar y levantar MetaStudio
+
+```bash
+git clone https://github.com/donivanovich/MetaStudio.git
+cd MetaStudio
+cp .env.example .env
+```
+
+Opcional (recomendado en Pi 3/4 para no saturar CPU al convertir playlists grandes a MP3): edita `.env` y fija:
+
+```env
+PLAYLIST_DOWNLOAD_CONCURRENCY=1
+```
+
+Arranca con selección inteligente de puertos (no chocará con otros servicios que ya tengas en la Pi):
+
+```bash
+chmod +x scripts/docker-up.sh
+./scripts/docker-up.sh
+```
+
+### 3. Acceder desde cualquier dispositivo de tu red local
+
+Consulta la IP local de la Raspberry Pi (`hostname -I`) y abre en tu móvil o PC:
+
+- `http://<IP-RASPBERRY>:<FRONTEND_PORT>` (p. ej. `http://192.168.1.50:8080` o `http://raspberrypi.local:8080`)
+
+Los contenedores tienen `restart: unless-stopped`, por lo que **arrancan solos automáticamente tras reiniciar la Raspberry Pi**.
+
+### 4. Actualizar MetaStudio o `yt-dlp` en la Raspberry Pi
+
+```bash
+cd ~/MetaStudio
+git pull
+./scripts/docker-up.sh
+
+# Para actualizar yt-dlp sin caché:
+docker compose build --no-cache backend && ./scripts/docker-up.sh --no-build
+```

@@ -11,8 +11,6 @@ interface HeaderBarProps {
   ffmpegAvailable: boolean | null;
 }
 
-const PLATFORMS = ["YT Music", "YouTube", "SoundCloud"];
-
 export function HeaderBar({
   url,
   onUrlChange,
@@ -61,17 +59,6 @@ export function HeaderBar({
           className="min-w-0 flex-1 bg-transparent font-mono text-sm text-foreground placeholder:font-sans placeholder:text-muted-foreground/70 focus:outline-none"
           aria-label="URL de canción o playlist"
         />
-
-        <div className="hidden items-center gap-1.5 lg:flex">
-          {PLATFORMS.map((label) => (
-            <span
-              key={label}
-              className="rounded-md border border-border bg-secondary/70 px-2 py-0.5 text-[11px] text-muted-foreground"
-            >
-              {label}
-            </span>
-          ))}
-        </div>
 
         {queueCount > 0 && (
           <div

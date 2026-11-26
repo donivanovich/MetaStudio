@@ -411,3 +411,13 @@ Fase 11 implementada, verificada en contenedores vivos y lista en `main`.
 - Añadido endpoint `DELETE /api/v1/sessions/{session_id}/queue` en `backend/api/sessions.py` para vaciar toda la cola de descarga sin modificar la playlist original cargada, con prueba automatizada en `backend/tests/test_phase3_playlists.py`.
 - Añadido cliente `clearQueue` en `frontend/src/services/api.ts`, manejador `handleClearQueue` en `frontend/src/App.tsx` y botón **Limpiar cola** (`ListX`) en `frontend/src/components/ActionFooter.tsx`.
 - Generada imagen social `frontend/public/og-image.png` (`1200×630`) acorde a la estética oscura + verde lima de MetaStudio y añadidas etiquetas `description`, Open Graph (`og:*`) y Twitter Card (`twitter:*`) en `frontend/index.html`.
+
+---
+
+## 2026-11-26 — Fase 17: Cabecera limpia, etiquetas de ánimo en verde lima, puertos Docker estables y guía Raspberry Pi
+
+### Implementación
+- Eliminadas las etiquetas de plataformas (`YT Music`, `YouTube`, `SoundCloud`) a la izquierda del botón **Extraer** en `frontend/src/components/HeaderBar.tsx`.
+- Cambiado el token `--mood` en `frontend/src/index.css` a `var(--primary)` para que las etiquetas antes naranjas usen el verde lima de contraste de la aplicación.
+- Corregida la deriva de puertos en Docker: `docker-compose.yml` usa puertos fijos (`${FRONTEND_PORT:-8080}:80` y `${BACKEND_HOST_PORT:-8000}:8000`) y añadidos los scripts `scripts/docker-up.ps1` (Windows) y `scripts/docker-up.sh` (Linux/macOS/Raspberry Pi, con `.gitattributes` LF) que mantienen el puerto actual de MetaStudio al reconstruir y solo saltan al siguiente puerto libre si está ocupado por otro servicio externo.
+- Documentado el despliegue paso a paso en **Raspberry Pi (ARM64)** en `docs/DOCKER.md` y `README.md`.
