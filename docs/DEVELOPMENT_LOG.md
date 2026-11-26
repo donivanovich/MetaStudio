@@ -283,3 +283,53 @@ Permitir desplegar y ejecutar MetaStudio de forma reproducible en cualquier ento
 
 ### Resultado
 Dockerización con rangos de puertos automáticos y documentación operativa completadas, probadas en vivo y subidas al repositorio.
+
+---
+
+## 2026-11-26 — Fase 11: Normalización de títulos/feat., artistas colaboradores completos e identidad visual (logo y favicon)
+
+### Implementación
+- Creado módulo centralizado `backend/utils/metadata_normalizer.py` para:
+  - Extraer cláusulas `feat.`, `ft.`, `featuring`, `with`, `con` (tanto entre paréntesis/corchetes como en línea y bloques mixtos tipo `(Remix feat. ...)`) y mover automáticamente todos los colaboradores al listado estructurado de `artists` con deduplicación insensible a acentos/mayúsculas.
+  - Reformatear calificadores de versión entre paréntesis/corchetes o guion (p. ej. `LA VERDAD (remix) feat. No se quien` → título `LA VERDAD remix` + colaboradores en `artists`).
+  - Corregir el separador de artistas (`\s+[x×]\s+`, `\s+y\s+`, `,`, `&`, `;`, `\s+with\s+`, `\s+con\s+`) evitando falsos cortes en nombres terminados en `x` (`Alex Rose`, `Dalex`) y protegiendo títulos normales (`Con Altura`, `Dancing With Myself`).
+- Mejorada la captura completa de colaboradores en todos los proveedores y extracción:
+  - **Deezer (`providers.py`)**: Enriquecimiento concurrente mediante `GET /track/{id}` para recuperar `contributors` completos (que `/search` omite).
+  - **Apple Music / iTunes, MusicBrainz, Discogs y Spotify (`providers.py`)**: Normalización uniforme de títulos y división completa de múltiples artistas (`A, B & C` + `[feat. ...]`).
+  - **yt-dlp (`ytdlp_service.py`)**: Extracción de todos los colaboradores en títulos `"Artista 1 x Artista 2 - Título"` incluso cuando `uploader`/`artist` contiene solo un artista principal, y rescate de colaboradores desde el título completo del vídeo cuando el campo `track` viene recortado.
+  - **Scoring y Agregador (`scoring.py`, `aggregator.py`)**: Combinación multi-fuente que fusiona colaboradores confirmados entre fuentes de alta confianza y preserva colaboradores explícitos del título original.
+- Diseñada e integrada identidad visual propia de **MetaStudio** (escudo oscuro con onda en forma de "M" en verde lima eléctrico y nodos de etiqueta cian/ámbar):
+  - `frontend/public/favicon.svg`, `frontend/public/logo.svg`, `frontend/public/favicon-32x32.png`, `frontend/public/apple-touch-icon.png` y `frontend/public/favicon.ico`.
+  - Componente reutilizable `frontend/src/components/BrandLogo.tsx` integrado en `HeaderBar` y `EmptyState`, y enlaces de favicon/theme-color en `frontend/index.html`.
+
+### Archivos creados
+- `backend/utils/metadata_normalizer.py`
+- `backend/tests/test_metadata_normalizer.py`
+- `frontend/public/favicon.svg`
+- `frontend/public/logo.svg`
+- `frontend/public/favicon-32x32.png`
+- `frontend/public/apple-touch-icon.png`
+- `frontend/public/favicon.ico`
+- `frontend/src/components/BrandLogo.tsx`
+
+### Archivos modificados
+- `backend/services/downloader/ytdlp_service.py`
+- `backend/services/metadata/providers.py`
+- `backend/services/metadata/scoring.py`
+- `backend/services/metadata/aggregator.py`
+- `backend/api/sessions.py`
+- `frontend/index.html`
+- `frontend/src/components/HeaderBar.tsx`
+- `frontend/src/components/EmptyState.tsx`
+- `docs/DEVELOPMENT_LOG.md`
+
+### Motivo del cambio
+Garantizar que no se pierdan artistas colaboradores al analizar y enriquecer pistas desde YouTube/Deezer/iTunes/MusicBrainz, estandarizar el formato limpio de versiones y `feat.` en títulos y dotar a la aplicación web de un logotipo y favicon acordes a su identidad oscura minimalista.
+
+### Validación
+- [x] Linter Python (`docker compose exec -T backend ruff check backend`: 0 errores).
+- [x] Suite completa de pruebas (`docker compose exec -T backend pytest backend/tests/ -q`: 42/42 pasadas, incluyendo 10 pruebas nuevas de normalización de títulos, `feat.`, `(remix)`, Deezer `/track/{id}` contributors y fusión multi-fuente).
+- [x] Build de producción Frontend (`tsc -b && vite build` en Docker: 0 errores) y verificación HTTP 200 en vivo de `/favicon.svg`, `/logo.svg`, `/favicon.ico` y `/api/v1/health`.
+
+### Resultado
+Fase 11 implementada, verificada en contenedores vivos y lista en `main`.

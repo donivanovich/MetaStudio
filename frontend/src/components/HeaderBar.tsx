@@ -1,5 +1,6 @@
-import { AudioLines, Link2, ListMusic, Loader2, Sparkles } from "lucide-react";
+import { Link2, ListMusic, Loader2, Sparkles } from "lucide-react";
 import type { FormEvent } from "react";
+import { BrandLogo } from "./BrandLogo";
 
 interface HeaderBarProps {
   url: string;
@@ -29,13 +30,13 @@ export function HeaderBar({
   return (
     <header className="grid gap-4 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-center lg:gap-10">
       <div className="flex items-center gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-[0_6px_24px_-6px_var(--primary)]">
-          <AudioLines className="size-5" />
+        <div className="shrink-0 rounded-xl shadow-[0_6px_24px_-8px_var(--primary)]">
+          <BrandLogo className="size-10" />
         </div>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold tracking-tight text-foreground">
-              MetaStudio
+              Meta<span className="text-primary">Studio</span>
             </h1>
             {ffmpegAvailable === false && (
               <span className="rounded-md border border-destructive/40 bg-destructive/15 px-1.5 py-0.5 font-mono text-[10px] text-destructive">

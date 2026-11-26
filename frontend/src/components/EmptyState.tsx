@@ -1,4 +1,5 @@
-import { Disc3, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
+import { BrandLogo } from "./BrandLogo";
 
 interface EmptyStateProps {
   onFillExampleUrl: (url: string) => void;
@@ -8,8 +9,8 @@ export function EmptyState({ onFillExampleUrl }: EmptyStateProps) {
   return (
     <div className="my-auto flex flex-col items-center justify-center py-12">
       <div className="flex max-w-md flex-col items-center rounded-2xl border border-border bg-card/70 px-8 py-10 text-center backdrop-blur">
-        <div className="mb-4 flex size-14 items-center justify-center rounded-2xl border border-border bg-secondary text-primary">
-          <Disc3 className="size-7" />
+        <div className="mb-4 rounded-2xl shadow-[0_10px_30px_-10px_var(--primary)]">
+          <BrandLogo className="size-14" />
         </div>
         <h2 className="text-lg font-semibold tracking-tight text-foreground">
           Empieza pegando un enlace
