@@ -11,18 +11,18 @@ import yt_dlp
 
 from backend.config.settings import get_settings
 from backend.services.audio.ffmpeg_service import get_ffmpeg_executable
+from backend.utils.metadata_normalizer import (
+    artist_dedupe_key,
+    extract_feat_artists_from_title,
+    merge_artist_lists,
+    normalize_structured_artists,
+    normalize_title_and_artists,
+    split_artist_string,
+)
 
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[float, str], None]
-
-_TITLE_NOISE_RE = re.compile(
-    r"\s*[\(\[]"
-    r"(?:official\s*(?:music\s*)?video|official\s*audio|lyric\s*video|lyrics|"
-    r"visualizer|audio\s*oficial|video\s*oficial|videoclip\s*oficial|hd|4k|hq)"
-    r"[\)\]]",
-    flags=re.IGNORECASE,
-)
 
 
 class DownloadServiceError(RuntimeError):
@@ -58,56 +58,65 @@ class ExtractionSummary:
     extractor: str | None = None
 
 
+def _clean_uploader_name(uploader: str | None) -> str:
+    if not uploader:
+        return ""
+    clean = re.sub(r"\s*-\s*Topic$", "", uploader.strip(), flags=re.IGNORECASE)
+    clean = re.sub(r"\s*VEVO$", "", clean, flags=re.IGNORECASE).strip()
+    return clean
+
+
 def clean_track_title_and_artists(
     raw_title: str,
     uploader: str | None = None,
     artist_field: str | None = None,
     artists_list: list[str] | None = None,
 ) -> tuple[str, list[str]]:
-    """Derive clean track title and structured artists list from yt-dlp info."""
-    cleaned_title = _TITLE_NOISE_RE.sub("", (raw_title or "").strip()).strip()
+    """Derive clean track title and structured artists list (including all collaborators) from yt-dlp info."""
+    cleaned_title = (raw_title or "").strip()
 
     parsed_artists: list[str] = []
     if artists_list:
-        parsed_artists = [a.strip() for a in artists_list if isinstance(a, str) and a.strip()]
-    elif artist_field:
-        parsed_artists = _split_artist_string(artist_field)
+        parsed_artists = normalize_structured_artists(artists_list)
+    if artist_field:
+        parsed_artists = merge_artist_lists(parsed_artists, split_artist_string(artist_field))
 
-    # Parse common "Artist - Title" YouTube pattern when no explicit artist metadata exists
-    if not parsed_artists and " - " in cleaned_title:
+    clean_uploader = _clean_uploader_name(uploader)
+
+    # Parse common "Artist A x Artist B - Song Title" YouTube pattern.
+    # Also handle when yt-dlp populated only 1 artist/uploader while the video title lists all collaborators!
+    if " - " in cleaned_title:
         left, right = cleaned_title.split(" - ", 1)
-        if left.strip() and right.strip():
-            parsed_artists = _split_artist_string(left)
-            cleaned_title = right.strip()
+        left_clean, right_clean = left.strip(), right.strip()
+        if left_clean and right_clean:
+            left_artists = split_artist_string(left_clean)
+            left_keys = {artist_dedupe_key(a) for a in left_artists}
+            known_keys = {
+                artist_dedupe_key(a)
+                for a in [*parsed_artists, *([clean_uploader] if clean_uploader else [])]
+                if a
+            }
+            if not parsed_artists or (left_keys & known_keys):
+                # Prefer order from left_artists (usually exact credit order) merged with existing
+                parsed_artists = merge_artist_lists(left_artists, parsed_artists)
+                cleaned_title = right_clean
 
-    if not parsed_artists and uploader:
-        clean_uploader = re.sub(r"\s*-\s*Topic$", "", uploader.strip(), flags=re.IGNORECASE)
-        clean_uploader = re.sub(r"\s*VEVO$", "", clean_uploader, flags=re.IGNORECASE).strip()
-        if clean_uploader:
-            parsed_artists = [clean_uploader]
+    if not parsed_artists and clean_uploader:
+        parsed_artists = [clean_uploader]
 
-    # Extract featured artists from title like "(feat. Feid)" when not already listed
-    feat_match = re.search(
-        r"\s*[\(\[]?(?:feat\.?|ft\.?|featuring)\s+([^\)\]]+)[\)\]]?",
+    # Strip video noise, extract feat./ft./with/con into artists, and unwrap "(remix)" -> "remix"
+    final_title, final_artists = normalize_title_and_artists(
         cleaned_title,
-        flags=re.IGNORECASE,
+        parsed_artists,
+        structured_artists=True,
     )
-    if feat_match:
-        feat_str = feat_match.group(1).strip()
-        for feat_artist in _split_artist_string(feat_str):
-            if feat_artist.lower() not in {a.lower() for a in parsed_artists}:
-                parsed_artists.append(feat_artist)
-        cleaned_title = (
-            cleaned_title[: feat_match.start()] + cleaned_title[feat_match.end() :]
-        ).strip(" -")
 
-    return cleaned_title or raw_title or "Untitled", parsed_artists
+    return final_title or raw_title or "Untitled", final_artists
 
 
 def _split_artist_string(raw: str) -> list[str]:
     """Split an unstructured artist string into individual names."""
-    parts = re.split(r"\s*(?:,|&|feat\.?|ft\.?|featuring|x\s+)\s*", raw, flags=re.IGNORECASE)
-    return [p.strip() for p in parts if p and p.strip()]
+    return split_artist_string(raw)
 
 
 def _build_entry_url(entry: dict[str, Any], fallback_url: str) -> str:
@@ -166,7 +175,9 @@ def _extract_preview_audio_url(info: dict[str, Any]) -> str | None:
 
 def _normalize_info_to_entry(info: dict[str, Any], fallback_url: str) -> ExtractedEntry:
     """Convert a yt-dlp entry dict (flat or full) into an ExtractedEntry."""
-    raw_title = str(info.get("track") or info.get("title") or "Untitled")
+    track_field = info.get("track")
+    video_title = info.get("title")
+    raw_title = str(track_field or video_title or "Untitled")
     artists_raw = info.get("artists") if isinstance(info.get("artists"), list) else None
     artist_str = info.get("artist") or info.get("creator")
     uploader = info.get("uploader") or info.get("channel")
@@ -176,6 +187,19 @@ def _normalize_info_to_entry(info: dict[str, Any], fallback_url: str) -> Extract
         artist_field=artist_str,
         artists_list=artists_raw,
     )
+
+    # When YouTube exposes a short `track` field without collaborators, also mine
+    # matching multi-artist prefixes (co-main artists first) and `feat.` from the full video `title`
+    if isinstance(track_field, str) and isinstance(video_title, str) and video_title.strip() != track_field.strip():
+        if " - " in video_title:
+            left_part = video_title.split(" - ", 1)[0].strip()
+            left_artists = split_artist_string(left_part)
+            known_keys = {artist_dedupe_key(a) for a in artists}
+            if len(left_artists) > 1 and ({artist_dedupe_key(a) for a in left_artists} & known_keys):
+                artists = merge_artist_lists(artists, left_artists)
+        _, title_feats = extract_feat_artists_from_title(video_title)
+        if title_feats:
+            artists = merge_artist_lists(artists, title_feats)
 
     duration_raw = info.get("duration")
     duration_seconds = int(duration_raw) if isinstance(duration_raw, (int, float)) and duration_raw > 0 else None

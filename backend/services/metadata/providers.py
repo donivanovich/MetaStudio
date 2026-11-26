@@ -10,10 +10,16 @@ import httpx
 
 from backend.config.settings import get_settings
 from backend.models.domain import MetadataSourceCandidate
+from backend.utils.metadata_normalizer import (
+    merge_artist_lists,
+    normalize_title_and_artists,
+    split_artist_string,
+)
 
 logger = logging.getLogger(__name__)
 
 _HTTP_TIMEOUT = httpx.Timeout(8.0, connect=5.0)
+_DEEZER_DETAIL_TIMEOUT = httpx.Timeout(4.0, connect=3.0)
 _mb_lock = asyncio.Lock()
 _mb_last_call: float = 0.0
 _spotify_token_cache: dict[str, Any] = {"token": None, "expires_at": 0.0}
@@ -30,9 +36,19 @@ def parse_deezer_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]:
     for item in (data.get("data") or [])[:5]:
         if not isinstance(item, dict):
             continue
-        title = str(item.get("title") or "").strip()
+        raw_title = str(item.get("title") or "").strip()
         artist_obj = item.get("artist") or {}
         artist_name = str(artist_obj.get("name") or "").strip()
+
+        raw_artists: list[str] = []
+        contributors = item.get("contributors")
+        if isinstance(contributors, list):
+            for contrib in contributors:
+                if isinstance(contrib, dict) and contrib.get("name"):
+                    raw_artists.append(str(contrib["name"]).strip())
+        if artist_name:
+            raw_artists = merge_artist_lists([artist_name], raw_artists)
+
         album_obj = item.get("album") or {}
         album_title = str(album_obj.get("title") or "").strip() or None
         artwork = (
@@ -41,13 +57,17 @@ def parse_deezer_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]:
             or album_obj.get("cover_medium")
         )
         duration = int(item["duration"]) if item.get("duration") else None
-        if not title:
+        if not raw_title:
             continue
+
+        title, artists = normalize_title_and_artists(
+            raw_title, raw_artists, structured_artists=True
+        )
         results.append(
             MetadataSourceCandidate(
                 source="Deezer",
                 title=title,
-                artists=[artist_name] if artist_name else [],
+                artists=artists,
                 album=album_title,
                 duration_seconds=duration,
                 confidence=0.0,
@@ -65,7 +85,7 @@ def parse_itunes_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]:
     for item in (data.get("results") or [])[:5]:
         if not isinstance(item, dict):
             continue
-        title = str(item.get("trackName") or "").strip()
+        raw_title = str(item.get("trackName") or "").strip()
         artist = str(item.get("artistName") or "").strip()
         album = str(item.get("collectionName") or "").strip() or None
         ms = item.get("trackTimeMillis")
@@ -75,14 +95,18 @@ def parse_itunes_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]:
         artwork = (
             art_raw.replace("100x100bb", "1400x1400bb") if "100x100bb" in art_raw else art_raw or None
         )
-        if not title:
+        if not raw_title:
             continue
-        artists = [p.strip() for p in artist.split("&") if p.strip()] if artist else []
+
+        split_artists = split_artist_string(artist) if artist else []
+        title, artists = normalize_title_and_artists(
+            raw_title, split_artists or ([artist] if artist else []), structured_artists=True
+        )
         results.append(
             MetadataSourceCandidate(
                 source="Apple Music",
                 title=title,
-                artists=artists or ([artist] if artist else []),
+                artists=artists,
                 album=album,
                 duration_seconds=duration,
                 confidence=0.0,
@@ -101,17 +125,21 @@ def parse_musicbrainz_payload(data: dict[str, Any]) -> list[MetadataSourceCandid
     for rec in (data.get("recordings") or [])[:5]:
         if not isinstance(rec, dict):
             continue
-        title = str(rec.get("title") or "").strip()
-        if not title:
+        raw_title = str(rec.get("title") or "").strip()
+        if not raw_title:
             continue
 
-        # Preserve individual artist entities (Rule 8.2: avoid splitting commas inside single artist names)
-        artists: list[str] = []
+        # Preserve individual artist entities (avoid splitting commas inside single artist names)
+        raw_artists: list[str] = []
         for credit in rec.get("artist-credit") or []:
             if isinstance(credit, dict):
                 name = credit.get("name") or (credit.get("artist") or {}).get("name")
                 if isinstance(name, str) and name.strip():
-                    artists.append(name.strip())
+                    raw_artists.append(name.strip())
+
+        title, artists = normalize_title_and_artists(
+            raw_title, raw_artists, structured_artists=True
+        )
 
         releases = rec.get("releases") or []
         album = None
@@ -157,11 +185,15 @@ def parse_discogs_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]
             continue
         if " - " in raw_title:
             artist_part, title_part = raw_title.split(" - ", 1)
-            artists = [artist_part.strip()]
-            title = title_part.strip()
+            raw_artists = split_artist_string(artist_part)
+            track_title_raw = title_part.strip()
         else:
-            artists = []
-            title = raw_title
+            raw_artists = []
+            track_title_raw = raw_title
+
+        title, artists = normalize_title_and_artists(
+            track_title_raw, raw_artists, structured_artists=True
+        )
 
         genres = [
             str(g).strip()
@@ -195,14 +227,17 @@ def parse_spotify_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]
     for item in tracks[:5]:
         if not isinstance(item, dict):
             continue
-        title = str(item.get("name") or "").strip()
-        if not title:
+        raw_title = str(item.get("name") or "").strip()
+        if not raw_title:
             continue
-        artists = [
+        raw_artists = [
             str(a.get("name")).strip()
             for a in (item.get("artists") or [])
             if isinstance(a, dict) and a.get("name")
         ]
+        title, artists = normalize_title_and_artists(
+            raw_title, raw_artists, structured_artists=True
+        )
         album_obj = item.get("album") or {}
         album = str(album_obj.get("name") or "").strip() or None
         images = album_obj.get("images") or []
@@ -226,6 +261,31 @@ def parse_spotify_payload(data: dict[str, Any]) -> list[MetadataSourceCandidate]
     return results
 
 
+async def _fetch_deezer_track_contributors(
+    client: httpx.AsyncClient, track_id: str
+) -> list[str]:
+    """Fetch full contributor list from Deezer `/track/{id}` (missing from `/search` results)."""
+    if not track_id:
+        return []
+    try:
+        resp = await client.get(
+            f"https://api.deezer.com/track/{track_id}",
+            timeout=_DEEZER_DETAIL_TIMEOUT,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        contributors = payload.get("contributors")
+        if not isinstance(contributors, list):
+            return []
+        return [
+            str(c.get("name")).strip()
+            for c in contributors
+            if isinstance(c, dict) and c.get("name")
+        ]
+    except Exception:
+        return []
+
+
 async def search_deezer(
     client: httpx.AsyncClient, title: str, artists: list[str]
 ) -> list[MetadataSourceCandidate]:
@@ -238,7 +298,22 @@ async def search_deezer(
         timeout=_HTTP_TIMEOUT,
     )
     resp.raise_for_status()
-    return parse_deezer_payload(resp.json())
+    candidates = parse_deezer_payload(resp.json())
+
+    # Enrich top 3 Deezer candidates with full `/track/{id}` contributors so collaborating artists are never lost
+    top_slice = candidates[:3]
+    if top_slice:
+        contrib_lists = await asyncio.gather(
+            *(_fetch_deezer_track_contributors(client, c.external_id or "") for c in top_slice),
+            return_exceptions=True,
+        )
+        for idx, contribs in enumerate(contrib_lists):
+            if isinstance(contribs, list) and contribs:
+                candidates[idx] = candidates[idx].model_copy(
+                    update={"artists": merge_artist_lists(contribs, candidates[idx].artists)}
+                )
+
+    return candidates
 
 
 async def search_itunes(
@@ -264,9 +339,12 @@ async def search_musicbrainz(
     if not title:
         return []
 
-    mb_query = f'recording:"{title}"'
+    safe_title = title.replace('"', "").strip()
+    mb_query = f'recording:"{safe_title}"'
     if artists:
-        mb_query += f' AND artist:"{artists[0]}"'
+        safe_artist = artists[0].replace('"', "").strip()
+        if safe_artist:
+            mb_query += f' AND artist:"{safe_artist}"'
 
     # Respect MusicBrainz 1 req/sec rate limit politely
     async with _mb_lock:

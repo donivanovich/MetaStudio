@@ -16,6 +16,7 @@ from backend.schemas.api import (
 from backend.services.downloader.ytdlp_service import DownloadServiceError, ytdlp_service
 from backend.services.storage.store import session_store
 from backend.services.track_processor import track_processor
+from backend.utils.metadata_normalizer import normalize_title_and_artists
 from backend.utils.url_validator import URLValidationError, validate_url
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
@@ -201,11 +202,14 @@ async def apply_metadata_candidate(
         raise HTTPException(status_code=404, detail="Proveedor de metadatos no encontrado.")
 
     fields = set(payload.fields) if payload.fields else {"title", "artists", "album"}
-    if "title" in fields and candidate.title:
-        track.title = candidate.title
+    clean_cand_title, clean_cand_artists = normalize_title_and_artists(
+        candidate.title, candidate.artists, structured_artists=True
+    )
+    if "title" in fields and clean_cand_title:
+        track.title = clean_cand_title
         track.metadata_provenance["title"] = candidate.source
-    if "artists" in fields and candidate.artists:
-        track.artists = list(candidate.artists)
+    if "artists" in fields and clean_cand_artists:
+        track.artists = list(clean_cand_artists)
         track.metadata_provenance["artists"] = candidate.source
     if "album" in fields:
         if candidate.album:

@@ -21,6 +21,12 @@ from backend.services.metadata.providers import (
 )
 from backend.services.metadata.scoring import normalize_text, rank_and_combine_candidates
 from backend.services.storage.store import session_store
+from backend.utils.metadata_normalizer import (
+    artist_dedupe_key,
+    extract_feat_artists_from_title,
+    merge_artist_lists,
+    normalize_title_and_artists,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +102,15 @@ async def enrich_track_metadata_and_artwork(
             track.metadata_provenance["title"] = provenance.get("title", ranked[0].source)
 
         if track.metadata_provenance.get("artists") != "manual" and combined.get("artists"):
-            track.artists = list(combined["artists"])  # type: ignore[arg-type]
+            provider_artists = list(combined["artists"])  # type: ignore[arg-type]
+            # Preserve any explicit `feat.` collaborators from the original title
+            # plus verified collaborators from yt-dlp when the primary artist matches
+            _, raw_feat_artists = extract_feat_artists_from_title(track.raw_title)
+            provider_keys = {artist_dedupe_key(a) for a in provider_artists}
+            existing_keys = {artist_dedupe_key(a) for a in track.artists}
+            extra_from_track = track.artists if (len(track.artists) > 1 and (provider_keys & existing_keys)) else []
+            merged_artists = merge_artist_lists(provider_artists, extra_from_track, raw_feat_artists)
+            track.artists = merged_artists
             track.metadata_provenance["artists"] = provenance.get("artists", ranked[0].source)
 
         if track.metadata_provenance.get("album") != "manual":
@@ -108,6 +122,15 @@ async def enrich_track_metadata_and_artwork(
                 track.album = track.title
                 track.album_auto_synced = True
                 track.metadata_provenance["album"] = "auto_from_title"
+    elif track.metadata_provenance.get("title") != "manual":
+        # Even if no external providers matched, keep title/artists cleanly normalized
+        clean_title, clean_artists = normalize_title_and_artists(
+            track.title, track.artists, structured_artists=True
+        )
+        if clean_title:
+            track.title = clean_title
+        if track.metadata_provenance.get("artists") != "manual" and clean_artists:
+            track.artists = clean_artists
 
     # Collect genres & authorized preview URL from matched providers
     for cand in ranked:
