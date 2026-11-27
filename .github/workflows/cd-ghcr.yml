@@ -75,7 +75,7 @@ jobs:
 
       - name: Extract Docker metadata & tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/metastudio-${{ matrix.service }}
           tags: |
