@@ -89,7 +89,7 @@ jobs:
           docker compose -f docker-compose.prod.yml config --quiet
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build backend image (validation only)
         uses: docker/build-push-action@v6
