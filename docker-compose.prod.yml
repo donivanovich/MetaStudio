@@ -1,0 +1,90 @@
+# ==============================================================================
+# MetaStudio — Production Docker Compose (Raspberry Pi 5 / ARM64 + Cloudflare Tunnel)
+# Deployment path: /opt/docker/apps/MetaStudio
+# Public access:   https://metastudio.donivanovich.dev -> Cloudflare Tunnel -> 127.0.0.1:3200
+# Backend access:  Strictly internal on metastudio-net (http://backend:8000), no host port exposed
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+# ==============================================================================
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/donivanovich/metastudio-backend:latest}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BACKEND_HOST: "0.0.0.0"
+      BACKEND_PORT: "8000"
+      FFMPEG_PATH: ""
+      TEMP_STORAGE_DIR: /app/backend/tmp
+      DATA_STORAGE_DIR: /app/backend/data
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://metastudio.donivanovich.dev,http://localhost:3200,http://127.0.0.1:3200}
+      AUDIO_MP3_BITRATE: ${AUDIO_MP3_BITRATE:-320}
+      PLAYLIST_DOWNLOAD_CONCURRENCY: ${PLAYLIST_DOWNLOAD_CONCURRENCY:-2}
+      MAX_ARTWORK_UPLOAD_MB: ${MAX_ARTWORK_UPLOAD_MB:-10}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+      MUSICBRAINZ_USER_AGENT: ${MUSICBRAINZ_USER_AGENT:-MetaStudio/1.0.0 (https://github.com/donivanovich/MetaStudio)}
+      DISCOGS_TOKEN: ${DISCOGS_TOKEN:-}
+    # Strictly internal: reachable only by frontend Nginx over metastudio-net
+    expose:
+      - "8000"
+    volumes:
+      - metastudio_data:/app/backend/data
+      - metastudio_tmp:/app/backend/tmp
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4); sys.exit(0 if r.status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - metastudio-net
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/donivanovich/metastudio-frontend:latest}
+    # Loopback-only binding for Cloudflare Tunnel (localhost:3200)
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3200}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - metastudio-net
+
+volumes:
+  metastudio_data:
+  metastudio_tmp:
+
+networks:
+  metastudio-net:
+    driver: bridge

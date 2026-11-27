@@ -1,13 +1,6 @@
-name: CD — Deploy to Raspberry Pi (SSH)
+name: CD — Deploy to Raspberry Pi 5 (SSH)
 
 on:
-  workflow_dispatch:
-    inputs:
-      git_ref:
-        description: "Rama o tag de Git a desplegar"
-        required: true
-        default: "main"
-        type: string
   workflow_run:
     workflows:
       - "CD — Publish Docker Images (GHCR)"
@@ -15,6 +8,13 @@ on:
       - completed
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag de imagen en GHCR a desplegar (ej. latest, main, sha-fbe66f5, 1.0.0)"
+        required: true
+        default: "latest"
+        type: string
 
 permissions:
   contents: read
@@ -23,24 +23,55 @@ concurrency:
   group: deploy-raspberry-pi
   cancel-in-progress: false
 
+env:
+  REGISTRY: ghcr.io
+
 jobs:
   deploy:
-    name: Deploy via SSH with Health Check & Rollback
+    name: Pull GHCR Images & Deploy to Raspberry Pi 5
     runs-on: ubuntu-latest
     environment: production
-    # Runs manually via workflow_dispatch, or automatically after GHCR publish ONLY if RPI_AUTO_DEPLOY == 'true'
+    # Never triggered by Pull Requests: runs ONLY after GHCR publish succeeded on main
+    # (when RPI_AUTO_DEPLOY == 'true') or via explicit manual workflow_dispatch
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && vars.RPI_AUTO_DEPLOY == 'true')
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        vars.RPI_AUTO_DEPLOY == 'true'
+      )
 
     steps:
-      - name: Validate required SSH secrets and input ref
+      - name: Resolve verified target image tag
+        id: target
+        run: |
+          OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.image_tag }}"
+          else
+            HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+            TAG="sha-${HEAD_SHA:0:7}"
+          fi
+          if [[ ! "${TAG}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Tag de imagen inválido: ${TAG}"
+            exit 1
+          fi
+          echo "owner=${OWNER}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "backend_image=${REGISTRY}/${OWNER}/metastudio-backend:${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "frontend_image=${REGISTRY}/${OWNER}/metastudio-frontend:${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout repository (to sync docker-compose.prod.yml)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Validate required SSH secrets
         env:
           RPI_HOST: ${{ secrets.RPI_HOST }}
           RPI_USER: ${{ secrets.RPI_USER }}
           RPI_SSH_KEY: ${{ secrets.RPI_SSH_KEY }}
           RPI_APP_DIR: ${{ secrets.RPI_APP_DIR }}
-          TARGET_REF: ${{ inputs.git_ref || github.event.workflow_run.head_sha || 'main' }}
         run: |
           missing=()
           [[ -z "${RPI_HOST}" ]] && missing+=("RPI_HOST")
@@ -51,12 +82,8 @@ jobs:
             echo "::error::Faltan secretos obligatorios en el entorno 'production': ${missing[*]}"
             exit 1
           fi
-          if [[ ! "${TARGET_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
-            echo "::error::Referencia Git inválida: ${TARGET_REF}"
-            exit 1
-          fi
           if [[ ! "${RPI_APP_DIR}" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
-            echo "::error::RPI_APP_DIR debe ser una ruta absoluta segura (ej. /home/pi/MetaStudio)."
+            echo "::error::RPI_APP_DIR debe ser una ruta absoluta segura (ej. /opt/docker/apps/MetaStudio)."
             exit 1
           fi
 
@@ -84,13 +111,11 @@ jobs:
           fi
           echo "SSH_PORT=${PORT}" >> "${GITHUB_ENV}"
 
-      - name: Deploy and verify health (with automatic rollback)
+      - name: Sync docker-compose.prod.yml to Raspberry Pi 5 (staging copy)
         env:
           RPI_HOST: ${{ secrets.RPI_HOST }}
           RPI_USER: ${{ secrets.RPI_USER }}
-          RPI_SSH_KEY: ${{ secrets.RPI_SSH_KEY }}
           RPI_APP_DIR: ${{ secrets.RPI_APP_DIR }}
-          TARGET_REF: ${{ inputs.git_ref || github.event.workflow_run.head_sha || 'main' }}
         run: |
           ssh -i "${RUNNER_TEMP}/ssh/deploy_key" \
               -p "${SSH_PORT}" \
@@ -99,67 +124,208 @@ jobs:
               -o BatchMode=yes \
               -o ConnectTimeout=15 \
               "${RPI_USER}@${RPI_HOST}" \
-              bash -s -- "${RPI_APP_DIR}" "${TARGET_REF}" <<'EOF'
-          set -euo pipefail
-          APP_DIR="$1"
-          TARGET_REF="$2"
+              mkdir -p -- "${RPI_APP_DIR}"
 
-          if [[ ! -d "${APP_DIR}/.git" ]]; then
-            echo "Error: ${APP_DIR} no contiene un repositorio Git válido de MetaStudio." >&2
-            exit 1
+          scp -i "${RUNNER_TEMP}/ssh/deploy_key" \
+              -P "${SSH_PORT}" \
+              -o UserKnownHostsFile="${RUNNER_TEMP}/ssh/known_hosts" \
+              -o StrictHostKeyChecking="${SSH_STRICT_OPT}" \
+              -o BatchMode=yes \
+              -o ConnectTimeout=15 \
+              docker-compose.prod.yml \
+              "${RPI_USER}@${RPI_HOST}:${RPI_APP_DIR}/docker-compose.prod.yml.new"
+
+      - name: Authenticate GHCR on Raspberry Pi (optional, for private packages)
+        env:
+          RPI_HOST: ${{ secrets.RPI_HOST }}
+          RPI_USER: ${{ secrets.RPI_USER }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          if [[ -n "${GHCR_READ_TOKEN}" ]]; then
+            LOGIN_USER="${GHCR_USERNAME:-token}"
+            if [[ ! "${LOGIN_USER}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+              echo "::error::GHCR_USERNAME contiene caracteres no válidos."
+              exit 1
+            fi
+            printf '%s' "${GHCR_READ_TOKEN}" | ssh -i "${RUNNER_TEMP}/ssh/deploy_key" \
+                -p "${SSH_PORT}" \
+                -o UserKnownHostsFile="${RUNNER_TEMP}/ssh/known_hosts" \
+                -o StrictHostKeyChecking="${SSH_STRICT_OPT}" \
+                -o BatchMode=yes \
+                -o ConnectTimeout=15 \
+                "${RPI_USER}@${RPI_HOST}" \
+                docker login ghcr.io -u "${LOGIN_USER}" --password-stdin >/dev/null
+            echo "GHCR_LOGGED_IN=true" >> "${GITHUB_ENV}"
           fi
 
-          cd "${APP_DIR}"
-          PREV_SHA="$(git rev-parse HEAD)"
-          echo "Current deployed commit: ${PREV_SHA}"
+      - name: Pull GHCR images, update containers, verify health and rollback on error
+        env:
+          RPI_HOST: ${{ secrets.RPI_HOST }}
+          RPI_USER: ${{ secrets.RPI_USER }}
+          RPI_APP_DIR: ${{ secrets.RPI_APP_DIR }}
+          NEW_BACKEND_IMAGE: ${{ steps.target.outputs.backend_image }}
+          NEW_FRONTEND_IMAGE: ${{ steps.target.outputs.frontend_image }}
+          TARGET_TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          ssh -i "${RUNNER_TEMP}/ssh/deploy_key" \
+              -p "${SSH_PORT}" \
+              -o UserKnownHostsFile="${RUNNER_TEMP}/ssh/known_hosts" \
+              -o StrictHostKeyChecking="${SSH_STRICT_OPT}" \
+              -o BatchMode=yes \
+              -o ConnectTimeout=15 \
+              "${RPI_USER}@${RPI_HOST}" \
+              bash -s -- \
+                "${RPI_APP_DIR}" \
+                "${NEW_BACKEND_IMAGE}" \
+                "${NEW_FRONTEND_IMAGE}" \
+                "${TARGET_TAG}" <<'EOF'
+          set -euo pipefail
 
-          verify_health() {
-            local fe_port
-            fe_port="$(docker compose port frontend 80 2>/dev/null | awk -F: '{print $NF}')"
-            if [[ -z "${fe_port}" ]]; then
-              return 1
+          APP_DIR="$1"
+          NEW_BACKEND_IMAGE="$2"
+          NEW_FRONTEND_IMAGE="$3"
+          TARGET_TAG="$4"
+
+          cd "${APP_DIR}"
+          COMPOSE_FILE="docker-compose.prod.yml"
+          STATE_FILE=".deploy-state.env"
+
+          # Capture currently running immutable image IDs before touching any container
+          PREV_BACKEND_ID=""
+          PREV_FRONTEND_ID=""
+          PREV_BACKEND_REF=""
+          PREV_FRONTEND_REF=""
+          if [[ -f "${COMPOSE_FILE}" ]]; then
+            BE_CID="$(docker compose -f "${COMPOSE_FILE}" ps -q backend 2>/dev/null || true)"
+            FE_CID="$(docker compose -f "${COMPOSE_FILE}" ps -q frontend 2>/dev/null || true)"
+            if [[ -n "${BE_CID}" ]]; then
+              PREV_BACKEND_ID="$(docker inspect --format '{{.Image}}' "${BE_CID}" 2>/dev/null || true)"
+              PREV_BACKEND_REF="$(docker inspect --format '{{.Config.Image}}' "${BE_CID}" 2>/dev/null || true)"
             fi
-            for _ in $(seq 1 30); do
-              if curl -fsS "http://127.0.0.1:${fe_port}/healthz" >/dev/null && \
-                 curl -fsS "http://127.0.0.1:${fe_port}/api/v1/health" | grep -q '"status":"ok"'; then
-                echo "Health check OK on port ${fe_port}."
-                return 0
+            if [[ -n "${FE_CID}" ]]; then
+              PREV_FRONTEND_ID="$(docker inspect --format '{{.Image}}' "${FE_CID}" 2>/dev/null || true)"
+              PREV_FRONTEND_REF="$(docker inspect --format '{{.Config.Image}}' "${FE_CID}" 2>/dev/null || true)"
+            fi
+          fi
+          echo "Previous backend image:  ${PREV_BACKEND_REF:-none} (${PREV_BACKEND_ID:-none})"
+          echo "Previous frontend image: ${PREV_FRONTEND_REF:-none} (${PREV_FRONTEND_ID:-none})"
+
+          # Pull new images FIRST while current containers keep running uninterrupted
+          echo "Pulling target images (${TARGET_TAG})..."
+          BACKEND_IMAGE="${NEW_BACKEND_IMAGE}" \
+          FRONTEND_IMAGE="${NEW_FRONTEND_IMAGE}" \
+            docker compose -f "${COMPOSE_FILE}.new" pull
+
+          # Backup previous compose file and promote staged compose file atomically
+          if [[ -f "${COMPOSE_FILE}" ]]; then
+            cp -f "${COMPOSE_FILE}" "${COMPOSE_FILE}.bak"
+          fi
+          mv -f "${COMPOSE_FILE}.new" "${COMPOSE_FILE}"
+
+          verify_deployment() {
+            local expected_be_img="$1"
+            local expected_fe_img="$2"
+
+            local expected_be_id expected_fe_id
+            expected_be_id="$(docker image inspect --format '{{.Id}}' "${expected_be_img}" 2>/dev/null || true)"
+            expected_fe_id="$(docker image inspect --format '{{.Id}}' "${expected_fe_img}" 2>/dev/null || true)"
+
+            for attempt in $(seq 1 45); do
+              local be_cid fe_cid be_health fe_health fe_port
+              be_cid="$(docker compose -f "${COMPOSE_FILE}" ps -q backend 2>/dev/null || true)"
+              fe_cid="$(docker compose -f "${COMPOSE_FILE}" ps -q frontend 2>/dev/null || true)"
+              be_health="$( [[ -n "${be_cid}" ]] && docker inspect --format '{{.State.Health.Status}}' "${be_cid}" 2>/dev/null || echo "missing" )"
+              fe_health="$( [[ -n "${fe_cid}" ]] && docker inspect --format '{{.State.Health.Status}}' "${fe_cid}" 2>/dev/null || echo "missing" )"
+              fe_port="$(docker compose -f "${COMPOSE_FILE}" port frontend 80 2>/dev/null | awk -F: '{print $NF}' || true)"
+
+              if [[ "${be_health}" == "healthy" && "${fe_health}" == "healthy" && -n "${fe_port}" ]]; then
+                if curl -fsS "http://127.0.0.1:${fe_port}/healthz" >/dev/null && \
+                   curl -fsS "http://127.0.0.1:${fe_port}/api/v1/health" | grep -q '"status":"ok"' && \
+                   curl -fsS "http://127.0.0.1:${fe_port}/api/v1/health" | grep -q '"available":true'; then
+                  local live_be_id live_fe_id
+                  live_be_id="$(docker inspect --format '{{.Image}}' "${be_cid}")"
+                  live_fe_id="$(docker inspect --format '{{.Image}}' "${fe_cid}")"
+                  if [[ -n "${expected_be_id}" && "${live_be_id}" != "${expected_be_id}" ]]; then
+                    echo "Error: backend container image ID mismatch." >&2
+                    return 1
+                  fi
+                  if [[ -n "${expected_fe_id}" && "${live_fe_id}" != "${expected_fe_id}" ]]; then
+                    echo "Error: frontend container image ID mismatch." >&2
+                    return 1
+                  fi
+                  echo "Verified healthy on port ${fe_port} (attempt ${attempt}): backend=${be_health}, frontend=${fe_health}"
+                  return 0
+                fi
               fi
               sleep 2
             done
+
+            echo "Verification failed. Current status and logs:" >&2
+            docker compose -f "${COMPOSE_FILE}" ps >&2 || true
+            docker compose -f "${COMPOSE_FILE}" logs --tail=60 >&2 || true
             return 1
           }
 
           rollback() {
-            echo "Deploy failed. Rolling back to previous commit ${PREV_SHA}..." >&2
-            git checkout --quiet "${PREV_SHA}"
-            ./scripts/docker-up.sh || docker compose up --build -d
-            if verify_health; then
-              echo "Rollback to ${PREV_SHA} verified healthy." >&2
+            echo "Initiating automatic rollback..." >&2
+            if [[ -f "${COMPOSE_FILE}.bak" ]]; then
+              mv -f "${COMPOSE_FILE}.bak" "${COMPOSE_FILE}"
+            fi
+            local rb_be="${PREV_BACKEND_ID:-${PREV_BACKEND_REF}}"
+            local rb_fe="${PREV_FRONTEND_ID:-${PREV_FRONTEND_REF}}"
+            if [[ -n "${rb_be}" && -n "${rb_fe}" ]]; then
+              BACKEND_IMAGE="${rb_be}" \
+              FRONTEND_IMAGE="${rb_fe}" \
+                docker compose -f "${COMPOSE_FILE}" up -d --no-build --remove-orphans
+              if verify_deployment "${rb_be}" "${rb_fe}"; then
+                echo "Rollback succeeded and previous services are healthy." >&2
+              else
+                echo "CRITICAL: Rollback containers failed health verification." >&2
+              fi
             else
-              echo "Rollback completed but health check still failing; manual inspection required." >&2
+              echo "No previous running deployment found to roll back to." >&2
             fi
           }
 
-          git fetch --prune origin
-          if git show-ref --verify --quiet "refs/remotes/origin/${TARGET_REF}"; then
-            git checkout --quiet "${TARGET_REF}"
-            git pull --ff-only origin "${TARGET_REF}"
-          else
-            git checkout --quiet "${TARGET_REF}"
-          fi
-
-          NEW_SHA="$(git rev-parse HEAD)"
-          echo "Deploying commit: ${NEW_SHA}"
-
-          if ! ./scripts/docker-up.sh || ! verify_health; then
+          # Update containers with minimal downtime (Compose recreates only changed services)
+          echo "Applying new deployment..."
+          if ! BACKEND_IMAGE="${NEW_BACKEND_IMAGE}" \
+               FRONTEND_IMAGE="${NEW_FRONTEND_IMAGE}" \
+               docker compose -f "${COMPOSE_FILE}" up -d --no-build --remove-orphans \
+             || ! verify_deployment "${NEW_BACKEND_IMAGE}" "${NEW_FRONTEND_IMAGE}"; then
             rollback
             exit 1
           fi
 
-          echo "Deployment of ${NEW_SHA} succeeded and passed all health checks."
+          # Persist deployed image refs so local restarts/reboots know the exact running version
+          printf 'BACKEND_IMAGE=%s\nFRONTEND_IMAGE=%s\nDEPLOYED_TAG=%s\n' \
+            "${NEW_BACKEND_IMAGE}" \
+            "${NEW_FRONTEND_IMAGE}" \
+            "${TARGET_TAG}" > "${STATE_FILE}"
+          rm -f "${COMPOSE_FILE}.bak"
+
+          # Clean dangling layers only (keeps named previous image tags for fast rollback)
+          docker image prune -f >/dev/null 2>&1 || true
+
+          echo "Deployment of ${TARGET_TAG} completed and verified."
+          docker compose -f "${COMPOSE_FILE}" ps
           EOF
 
-      - name: Clean up ephemeral SSH key
+      - name: Log out GHCR on Raspberry Pi and clean up ephemeral SSH key
         if: always()
-        run: rm -rf "${RUNNER_TEMP}/ssh"
+        env:
+          RPI_HOST: ${{ secrets.RPI_HOST }}
+          RPI_USER: ${{ secrets.RPI_USER }}
+        run: |
+          if [[ "${GHCR_LOGGED_IN:-}" == "true" && -f "${RUNNER_TEMP}/ssh/deploy_key" ]]; then
+            ssh -i "${RUNNER_TEMP}/ssh/deploy_key" \
+                -p "${SSH_PORT}" \
+                -o UserKnownHostsFile="${RUNNER_TEMP}/ssh/known_hosts" \
+                -o StrictHostKeyChecking="${SSH_STRICT_OPT}" \
+                -o BatchMode=yes \
+                -o ConnectTimeout=10 \
+                "${RPI_USER}@${RPI_HOST}" \
+                docker logout ghcr.io >/dev/null 2>&1 || true
+          fi
+          rm -rf "${RUNNER_TEMP}/ssh"
