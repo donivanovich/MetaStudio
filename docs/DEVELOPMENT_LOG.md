@@ -421,3 +421,15 @@ Fase 11 implementada, verificada en contenedores vivos y lista en `main`.
 - Cambiado el token `--mood` en `frontend/src/index.css` a `var(--primary)` para que las etiquetas antes naranjas usen el verde lima de contraste de la aplicación.
 - Corregida la deriva de puertos en Docker: `docker-compose.yml` usa puertos fijos (`${FRONTEND_PORT:-8080}:80` y `${BACKEND_HOST_PORT:-8000}:8000`) y añadidos los scripts `scripts/docker-up.ps1` (Windows) y `scripts/docker-up.sh` (Linux/macOS/Raspberry Pi, con `.gitattributes` LF) que mantienen el puerto actual de MetaStudio al reconstruir y solo saltan al siguiente puerto libre si está ocupado por otro servicio externo.
 - Documentado el despliegue paso a paso en **Raspberry Pi (ARM64)** en `docs/DOCKER.md` y `README.md`.
+
+---
+
+## 2026-11-27 — Fase 18: Auditoría técnica completa, alineación con producción Raspberry Pi 5 + Cloudflare Tunnel y CI/CD independiente
+
+### Implementación
+- **Producción (`docker-compose.prod.yml`)**: Eliminada la publicación del puerto del backend (`expose: ["8000"]` estrictamente interno en `metastudio-net`), vinculado `frontend` exclusivamente a loopback (`127.0.0.1:${FRONTEND_PORT:-3200}:80`) para Cloudflare Tunnel (`metastudio.donivanovich.dev` → `localhost:3200`), actualizado `CORS_ORIGINS` por defecto, añadido `security_opt: [no-new-privileges:true]` y rotación de logs `json-file` (`10m` × `3`).
+- **Nginx (`frontend/nginx.conf`)**: Preservado `X-Forwarded-Proto` (`map $http_x_forwarded_proto $forwarded_proto`) para tráfico HTTPS detrás de Cloudflare Tunnel y añadidas cabeceras de seguridad (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`).
+- **Backend (`backend/main.py` + `test_phase9_security_and_sse.py`)**: Corregido `RateLimitMiddleware` para resolver la IP real de cada visitante mediante `CF-Connecting-IP` / `X-Forwarded-For` detrás de Cloudflare Tunnel + Nginx y limpiar cubetas obsoletas para evitar crecimiento de memoria en servidores continuos.
+- **Metadatos sociales (`frontend/index.html`)**: Actualizados `og:url`, `canonical`, `og:image` y `twitter:image` al dominio real `https://metastudio.donivanovich.dev`.
+- **CI/CD independiente**: Separado `.github/workflows/security-audit.yml` (`npm audit`, `pip-audit`, `shellcheck`, higiene de secretos) de `.github/workflows/ci.yml` y actualizado `.github/workflows/cd-raspberry-pi.yml` para despliegue mediante `docker compose -f docker-compose.prod.yml pull` + `up -d` desde GHCR ARM64 con verificación de `healthy`, `/healthz`, `/api/v1/health`, digest de imagen y rollback automático.
+- **Documentación integral**: Actualizados `README.md`, `docs/DOCKER.md`, `docs/ARCHITECTURE.md` (incluyendo inventario completo de endpoints `/api/v1/*`), `docs/SETUP.md`, `.env.example` y `docs/IMPLEMENTATION_STATUS.md` reflejando `/opt/docker/apps/MetaStudio`, Cloudflare Tunnel, healthchecks, logs, diagnóstico, actualizaciones sin `down -v` y backups de `metastudio_data`.

@@ -1,166 +1,55 @@
-# Guía de Despliegue con Docker — MetaStudio Music Downloader
+# Guía de Despliegue Docker y Producción (Raspberry Pi 5 + Cloudflare Tunnel)
 
-Esta guía describe cómo construir, ejecutar, configurar y mantener **MetaStudio Music Downloader** utilizando **Docker** y **Docker Compose**.
+Esta guía documenta la configuración real de **MetaStudio Music Downloader** tanto en **producción** (Raspberry Pi 5 de 16 GB con Raspberry Pi OS Lite 64-bit, Docker Compose y Cloudflare Tunnel) como en **desarrollo local con Docker**.
+
+> **Sin dependencias en el host:** En producción con contenedores **no es necesario instalar Python, Node.js, npm ni FFmpeg en el sistema operativo host**. Todo se ejecuta aislado dentro de Docker.
 
 ---
 
-## 1. Arquitectura de Contenedores
+## 1. Arquitectura Real de Producción
 
-El despliegue con `docker-compose.yml` levanta dos servicios conectados a través de una red privada (`metastudio-net`):
+- **Servidor**: Raspberry Pi 5 (16 GB RAM, Raspberry Pi OS Lite 64-bit / `linux/arm64`)
+- **Directorio de producción**: `/opt/docker/apps/MetaStudio`
+- **Dominio público**: `https://metastudio.donivanovich.dev`
+- **Acceso público**: Cloudflare Tunnel (`cloudflared`) → `http://localhost:3200` → contenedor `frontend` (Nginx)
+- **Backend FastAPI**: **Estrictamente interno** en la red Docker `metastudio-net` (`http://backend:8000`). **No publica ningún puerto en el host.**
 
 ```mermaid
 flowchart LR
-    User["Navegador Web"] -->|"http://localhost:8080"| Nginx["frontend (Nginx 1.27 Alpine)"]
-    Nginx -->|"SPA estática (/)"| SPA["React + Vite dist/"]
-    Nginx -->|"Proxy /api/* + SSE sin buffering"| Backend["backend (Python 3.12 + FastAPI + Uvicorn)"]
-    Backend --> FFmpeg["FFmpeg nativo (apt)"]
-    Backend --> DataVol[("Volumen: metastudio_data\n/app/backend/data")]
-    Backend --> TmpVol[("Volumen: metastudio_tmp\n/app/backend/tmp")]
+    Internet["Usuario / Navegador\nhttps://metastudio.donivanovich.dev"] -->|"HTTPS"| CF["Cloudflare Edge"]
+    CF -->|"Cloudflare Tunnel\n(cloudflared)"| Loopback["Host Raspberry Pi 5\n127.0.0.1:3200"]
+    Loopback --> Frontend["frontend\nNginx 1.27 Alpine (:80)"]
+    Frontend -->|"SPA estática (/)"| SPA["React + Vite dist/"]
+    Frontend -->|"Proxy interno /api/* y SSE\n(metastudio-net)"| Backend["backend\nFastAPI + Uvicorn (:8000 interno)"]
+    Backend --> FFmpeg["FFmpeg nativo (apt ARM64)"]
+    Backend --> DataVol[("Volumen persistente:\nmetastudio_data\n/app/backend/data")]
+    Backend --> TmpVol[("Volumen temporal:\nmetastudio_tmp\n/app/backend/tmp")]
 ```
 
-| Servicio | Imagen Base | Puerto Interno | Puerto Host (por defecto) | Responsabilidad |
+### Separación Producción vs Desarrollo
+
+| Archivo Compose | Uso | Imágenes | Puerto Frontend | Puerto Backend |
 | --- | --- | --- | --- | --- |
-| `frontend` | `node:22-alpine` → `nginx:1.27-alpine` (multi-stage) | `80` | `8080` (`FRONTEND_PORT`, estable; los scripts `scripts/docker-up.*` saltan solo puertos ocupados por otras apps en `8080-8099`) | Sirve la SPA compilada y actúa como reverse proxy hacia `/api/*` (con soporte dedicado para SSE y subidas de carátulas hasta 30 MB). |
-| `backend` | `python:3.12-slim` + `ffmpeg` | `8000` | `8000` (`BACKEND_HOST_PORT`, estable; los scripts `scripts/docker-up.*` saltan solo puertos ocupados por otras apps en `8000-8019`) | Ejecuta FastAPI, `yt-dlp`, FFmpeg nativo, Mutagen (ID3v2.3), Pillow y la cola asíncrona de descargas/ZIP. |
+| `docker-compose.prod.yml` | **Producción (Raspberry Pi 5)** | Precompiladas multi-arch (`linux/arm64`, `linux/amd64`) desde **GHCR** | `127.0.0.1:3200:80` (solo loopback para Cloudflare Tunnel) | **Ninguno publicado** (solo interno `expose: 8000`) |
+| `docker-compose.yml` | **Desarrollo / build local** | Compiladas localmente desde `backend/Dockerfile` y `frontend/Dockerfile` | `0.0.0.0:${FRONTEND_PORT:-8080}:80` | `0.0.0.0:${BACKEND_HOST_PORT:-8000}:8000` (Swagger `/docs` en local) |
 
-### Decisiones Clave de Contenerización
+### Decisiones Clave de Contenerización y Seguridad
 
-- **FFmpeg nativo del sistema**: `backend/Dockerfile` instala `ffmpeg` (y `ffprobe`) vía `apt-get`, por lo que el servicio detecta automáticamente `/usr/bin/ffmpeg` (`source: "system_path"`) sin depender de rutas locales del host. `docker-compose.yml` fija `FFMPEG_PATH: ""` para evitar conflictos si `.env` contiene una ruta de Windows/macOS.
-- **Usuario no-root en Backend**: El contenedor `backend` se ejecuta como `appuser` (UID `1000`) con permisos dedicados sobre `/app/backend/data` y `/app/backend/tmp`.
-- **Worker único asíncrono**: Uvicorn arranca con un único worker asíncrono (`--proxy-headers --forwarded-allow-ips=*`) para mantener la coherencia en memoria de sesiones activas, cola de descargas y suscripciones **Server-Sent Events (SSE)**, respetando además la IP real del cliente detrás de Nginx para el rate-limiter.
-- **Proxy Nginx preparado para SSE y ZIP**: `frontend/nginx.conf` desactiva el buffering y la compresión gzip en `/api/v1/jobs/<id>/events` con timeout extendido (`3600s`) para streaming en tiempo real de playlists largas, y permite subidas de carátulas personalizadas de hasta `30m`.
-- **Same-origin sin problemas de CORS**: El frontend se compila con `VITE_API_BASE_URL=""` por defecto para que todas las llamadas a `/api/v1/*` pasen por el proxy de Nginx en el mismo origen.
-- **Healthchecks y arranque ordenado**: `frontend` espera a que `backend` supere su healthcheck (`GET /api/v1/health`) antes de iniciar.
-
----
-
-## 2. Requisitos Previos
-
-- **Docker Engine 24+** y **Docker Compose v2** (`docker compose`).
-  - Windows / macOS: [Docker Desktop](https://www.docker.com/products/docker-desktop/) en ejecución.
-  - Linux: Docker Engine + plugin `docker-compose-plugin`.
+- **Backend sin puerto público en producción**: Toda comunicación hacia `/api/v1/*` entra por Nginx en `frontend` y viaja internamente por `metastudio-net` hacia `http://backend:8000`.
+- **Loopback-only en el frontend de producción**: `127.0.0.1:${FRONTEND_PORT:-3200}:80` asegura que el contenedor solo escuche en la interfaz local para `cloudflared`, sin abrir puertos al resto de la red ni a Internet.
+- **Privilegios mínimos**: El contenedor `backend` corre como usuario no-root (`appuser`, UID `1000`) y ambos servicios activan `security_opt: ["no-new-privileges:true"]`.
+- **Rotación de logs**: `json-file` limitado a `10m` × `3` archivos por contenedor para proteger el almacenamiento de la Raspberry Pi.
+- **Proxy Nginx preparado para Cloudflare Tunnel y SSE**: `frontend/nginx.conf` preserva `X-Forwarded-Proto` (`https`), reenvía `CF-Connecting-IP` (usado por `RateLimitMiddleware` en FastAPI para aislar el límite de peticiones por visitante real), añade cabeceras de seguridad (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`), permite subidas de carátulas hasta `30m` y desactiva `proxy_buffering`/`gzip` con timeout de `3600s` en `/api/v1/jobs/<id>/events`.
+- **FFmpeg nativo**: `backend/Dockerfile` instala `ffmpeg` (y `ffprobe`) vía `apt-get` y fija `FFMPEG_PATH: ""` en Compose para autodetectar `/usr/bin/ffmpeg` (`source: "system_path"`).
+- **Worker único asíncrono**: Uvicorn corre con 1 worker asíncrono para mantener coherencia de sesiones, cola de descargas y suscriptores SSE.
 
 ---
 
-## 3. Inicio Rápido con Docker Compose
+## 2. Despliegue en Producción (Raspberry Pi 5 — `/opt/docker/apps/MetaStudio`)
 
-### Opción A: Arrancar con selección inteligente y estable de puertos (Recomendado)
+### Requisitos en Raspberry Pi OS Lite (64-bit)
 
-Los scripts incluidos (`scripts/docker-up.sh` en Linux/macOS/Raspberry Pi y `scripts/docker-up.ps1` en Windows) comprueban el rango `8080-8099` (frontend) y `8000-8019` (backend):
-- Si el puerto ya pertenece a **MetaStudio**, **lo mantiene exactamente igual** al reconstruir tras hacer cambios.
-- Solo avanza al siguiente puerto libre si está ocupado por **otra web o servicio externo**, y guarda el puerto elegido en `.env`.
-
-```bash
-# Linux / macOS / Raspberry Pi
-./scripts/docker-up.sh
-
-# Windows (PowerShell)
-.\scripts\docker-up.ps1
-```
-
-### Opción B: Con Docker Compose directamente (puertos fijos)
-
-```bash
-# 1. Copiar plantilla de entorno (opcional)
-cp .env.example .env
-
-# 2. Editar .env (opcional: DISCOGS_TOKEN, FRONTEND_PORT, BACKEND_HOST_PORT, etc.)
-
-# 3. Construir e iniciar los contenedores en segundo plano
-docker compose up --build -d
-```
-
-### URLs disponibles
-
-Para consultar el puerto exacto asignado en cualquier momento:
-
-```bash
-docker compose port frontend 80
-docker compose port backend 8000
-```
-
-- **Aplicación Web (Frontend + Proxy API)**: `http://localhost:<FRONTEND_PORT>` (p. ej. `http://localhost:8080`)
-- **Healthcheck Backend**: `http://localhost:<BACKEND_HOST_PORT>/api/v1/health`
-- **Documentación OpenAPI / Swagger**: `http://localhost:<BACKEND_HOST_PORT>/docs`
-
----
-
-## 4. Variables de Entorno Relevantes en Docker
-
-Todas las variables de `.env` son opcionales y pueden sobrescribirse mediante `.env` o variables de entorno del host:
-
-| Variable | Valor por defecto en Docker | Descripción |
-| --- | --- | --- |
-| `FRONTEND_PORT` | `8080` | Puerto fijo del host para Nginx (los scripts `docker-up.*` eligen automáticamente el primer libre en `8080-8099` y lo fijan) |
-| `BACKEND_HOST_PORT` | `8000` | Puerto fijo del host para FastAPI (los scripts `docker-up.*` eligen automáticamente el primer libre en `8000-8019` y lo fijan) |
-| `CORS_ORIGINS` | `http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173` | Orígenes CORS aceptados si se consume la API directamente |
-| `AUDIO_MP3_BITRATE` | `320` | Bitrate MP3 de exportación (`96`–`320` kbps) |
-| `PLAYLIST_DOWNLOAD_CONCURRENCY` | `2` | Concurrencia en descargas de playlists (`1`–`5`) |
-| `MAX_ARTWORK_UPLOAD_MB` | `10` | Límite de subida de carátula personalizada (`1`–`25` MB) |
-| `RATE_LIMIT_PER_MINUTE` | `60` | Límite de peticiones API por minuto e IP |
-| `MUSICBRAINZ_USER_AGENT` | `MetaStudio/1.0.0 (...)` | User-Agent enviado a MusicBrainz |
-| `DISCOGS_TOKEN` | *(vacío)* | Token opcional para activar el proveedor Discogs |
-
----
-
-## 5. Persistencia y Volúmenes
-
-Docker Compose crea dos volúmenes gestionados:
-
-| Volumen | Ruta en el contenedor | Contenido |
-| --- | --- | --- |
-| `metastudio_data` | `/app/backend/data` | Persistencia independiente de etiquetas (`track_tags.json`) y etiquetas personalizadas del catálogo (`custom_tags.json`). Se conserva entre reinicios y reconstrucciones. |
-| `metastudio_tmp` | `/app/backend/tmp` | Archivos temporales aislados por sesión (caché, carátulas subidas, MP3 descargados y archivos ZIP). |
-
-Para limpiar únicamente los datos temporales y empezar en limpio (borrando también etiquetas guardadas si se usa `-v`):
-
-```bash
-# Detener manteniendo volúmenes y etiquetas guardadas
-docker compose down
-
-# Detener y eliminar también los volúmenes de datos/temporales
-docker compose down -v
-```
-
----
-
-## 6. Comandos Operativos Frecuentes
-
-```bash
-# Ver estado y salud (healthy) de los contenedores
-docker compose ps
-
-# Seguir logs en tiempo real de ambos servicios
-docker compose logs -f
-
-# Ver solo los logs del backend (yt-dlp, FFmpeg, API)
-docker compose logs -f backend
-
-# Ejecutar la suite de pruebas y linter dentro del contenedor backend
-docker compose exec backend pytest backend/tests/ -v
-docker compose exec backend ruff check backend
-
-# Actualizar yt-dlp reconstruyendo la imagen del backend sin caché
-docker compose build --no-cache backend
-docker compose up -d backend
-```
-
----
-
-## 7. Solución de Problemas en Docker
-
-- **Todo el rango de puertos (`8080-8099` u `8000-8019`) está ocupado o quieres un puerto fijo**: Define `FRONTEND_PORT=3000` o `BACKEND_HOST_PORT=8050` en `.env` y vuelve a ejecutar `docker compose up -d`. Para consultar qué puerto del rango fue asignado automáticamente, ejecuta `docker compose ps` o `docker compose port frontend 80`.
-- **Error `open //./pipe/dockerDesktopLinuxEngine`**: El motor de Docker Desktop no está iniciado. Abre Docker Desktop y espera a que muestre el estado *Engine running*.
-- **Error al descargar de YouTube tras varias semanas**: Reconstruye el backend sin caché (`docker compose build --no-cache backend && docker compose up -d backend`) para obtener la versión más reciente de `yt-dlp`.
-- **Despliegue detrás de otro proxy inverso (Traefik, Caddy, Cloudflare Tunnel)**: Asegúrate de desactivar el buffering de respuesta en la ruta `/api/v1/jobs/*/events` para que el progreso SSE se entregue en tiempo real.
-
----
-
-## 8. Despliegue en Raspberry Pi (ARM64)
-
-Todas las imágenes base de MetaStudio (`python:3.12-slim`, `node:22-alpine`, `nginx:1.27-alpine`) y `ffmpeg` son **multi-arquitectura oficiales (`linux/arm64`)**. Se recomienda **Raspberry Pi OS 64-bit** en Raspberry Pi 3B+, 4 o 5.
-
-### 1. Instalar Docker y Docker Compose en la Raspberry Pi
+Solo se necesita **Docker Engine** y el plugin **Docker Compose v2** (`docker compose`):
 
 ```bash
 curl -fsSL https://get.docker.com | sh
@@ -169,42 +58,213 @@ newgrp docker
 docker --version && docker compose version
 ```
 
-### 2. Clonar y levantar MetaStudio
+### Puesta en marcha inicial
 
 ```bash
-git clone https://github.com/donivanovich/MetaStudio.git
-cd MetaStudio
+sudo mkdir -p /opt/docker/apps/MetaStudio
+sudo chown -R "$USER:$USER" /opt/docker/apps/MetaStudio
+cd /opt/docker/apps/MetaStudio
+
+# Clonar repositorio (o copiar docker-compose.prod.yml y .env)
+git clone https://github.com/donivanovich/MetaStudio.git .
 cp .env.example .env
 ```
 
-Opcional (recomendado en Pi 3/4 para no saturar CPU al convertir playlists grandes a MP3): edita `.env` y fija:
+Ajusta `.env` para producción en `/opt/docker/apps/MetaStudio/.env`:
 
 ```env
-PLAYLIST_DOWNLOAD_CONCURRENCY=1
+FRONTEND_PORT=3200
+CORS_ORIGINS=https://metastudio.donivanovich.dev,http://localhost:3200,http://127.0.0.1:3200
+AUDIO_MP3_BITRATE=320
+PLAYLIST_DOWNLOAD_CONCURRENCY=2
+MAX_ARTWORK_UPLOAD_MB=10
+RATE_LIMIT_PER_MINUTE=60
+DISCOGS_TOKEN=
 ```
 
-Arranca con selección inteligente de puertos (no chocará con otros servicios que ya tengas en la Pi):
+Descarga las imágenes ARM64 precompiladas de GHCR y levanta los servicios:
 
 ```bash
-chmod +x scripts/docker-up.sh
-./scripts/docker-up.sh
+# Solo si los paquetes GHCR son privados:
+# echo "<PAT_READ_PACKAGES>" | docker login ghcr.io -u donivanovich --password-stdin
+
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-### 3. Acceder desde cualquier dispositivo de tu red local
+Ambos contenedores incluyen `restart: unless-stopped`, por lo que arrancan automáticamente al reiniciar la Raspberry Pi 5.
 
-Consulta la IP local de la Raspberry Pi (`hostname -I`) y abre en tu móvil o PC:
+---
 
-- `http://<IP-RASPBERRY>:<FRONTEND_PORT>` (p. ej. `http://192.168.1.50:8080` o `http://raspberrypi.local:8080`)
+## 3. Configuración de Cloudflare Tunnel
 
-Los contenedores tienen `restart: unless-stopped`, por lo que **arrancan solos automáticamente tras reiniciar la Raspberry Pi**.
+En el panel de **Cloudflare Zero Trust → Networks → Tunnels** (o en el `config.yml` local de `cloudflared`), el *Public Hostname* debe apuntar a la dirección local publicada por el contenedor `frontend`:
 
-### 4. Actualizar MetaStudio o `yt-dlp` en la Raspberry Pi
+| Campo | Valor |
+| --- | --- |
+| **Public Hostname** | `metastudio.donivanovich.dev` |
+| **Service Type** | `HTTP` |
+| **URL** | `localhost:3200` (`http://127.0.0.1:3200`) |
+
+Ejemplo equivalente si gestionas `cloudflared` mediante archivo local `/etc/cloudflared/config.yml`:
+
+```yaml
+ingress:
+  - hostname: metastudio.donivanovich.dev
+    service: http://127.0.0.1:3200
+  - service: http_status:404
+```
+
+> **Nota sobre SSE y descargas ZIP en Cloudflare**: El endpoint de progreso en vivo (`/api/v1/jobs/<id>/events`) envía `Cache-Control: no-cache` y `X-Accel-Buffering: no`, además de keepalives periódicos cada 15 segundos para evitar desconexiones por inactividad.
+
+---
+
+## 4. Healthchecks, Logs y Diagnóstico
+
+### Verificar estado y healthchecks
 
 ```bash
-cd ~/MetaStudio
-git pull
+cd /opt/docker/apps/MetaStudio
+
+# Estado y salud de ambos contenedores (deben aparecer como "healthy")
+docker compose -f docker-compose.prod.yml ps
+
+# Comprobar Nginx (frontend) en loopback
+curl -fsS http://127.0.0.1:3200/healthz
+
+# Comprobar comunicación interna frontend -> backend FastAPI + estado de FFmpeg
+curl -fsS http://127.0.0.1:3200/api/v1/health
+```
+
+Respuesta esperada de `/api/v1/health`:
+
+```json
+{
+  "status": "ok",
+  "ffmpeg": { "available": true, "source": "system_path", "version": "...", "error": null },
+  "yt_dlp_version": "...",
+  "providers": { "musicbrainz": true, "deezer": true, "itunes": true, "discogs": false }
+}
+```
+
+### Consultar logs
+
+```bash
+cd /opt/docker/apps/MetaStudio
+
+# Logs en tiempo real de ambos servicios
+docker compose -f docker-compose.prod.yml logs -f --tail=100
+
+# Solo backend (extracción yt-dlp, FFmpeg, proveedores de metadatos)
+docker compose -f docker-compose.prod.yml logs -f --tail=100 backend
+
+# Solo frontend (Nginx access/error logs)
+docker compose -f docker-compose.prod.yml logs -f --tail=100 frontend
+```
+
+### Diagnóstico rápido
+
+```bash
+# Verificar que SOLO 127.0.0.1:3200 está publicado y el backend NO tiene puerto en el host
+docker compose -f docker-compose.prod.yml ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
+
+# Comprobar conectividad interna desde frontend hacia backend
+docker compose -f docker-compose.prod.yml exec frontend wget -qO- http://backend:8000/api/v1/health
+
+# Comprobar sintaxis de Nginx dentro del contenedor
+docker compose -f docker-compose.prod.yml exec frontend nginx -t
+
+# Ver uso de CPU y memoria en la Raspberry Pi 5
+docker stats --no-stream
+```
+
+---
+
+## 5. Actualizaciones Seguras (sin pérdida de datos)
+
+> **IMPORTANTE:** Nunca ejecutes `docker compose down -v` en producción, ya que eliminaría los volúmenes persistentes (`metastudio_data` con las etiquetas guardadas y `metastudio_tmp`).
+
+### Actualización automática (CI/CD)
+Al integrar cambios en `main`, GitHub Actions ejecuta **CI** → publica nuevas imágenes `linux/amd64,linux/arm64` en **GHCR** → despliega en `/opt/docker/apps/MetaStudio` mediante `.github/workflows/cd-raspberry-pi.yml` (`pull` + `up -d` + verificación de salud + rollback automático).
+
+### Actualización manual desde la Raspberry Pi 5
+
+```bash
+cd /opt/docker/apps/MetaStudio
+
+# 1. Descargar nuevas imágenes sin detener aún los contenedores activos
+docker compose -f docker-compose.prod.yml pull
+
+# 2. Recrear únicamente los contenedores actualizados manteniendo volúmenes
+docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+# 3. Verificar salud tras actualizar
+curl -fsS http://127.0.0.1:3200/healthz
+curl -fsS http://127.0.0.1:3200/api/v1/health
+
+# 4. Limpiar solo capas huérfanas antiguas (opcional)
+docker image prune -f
+```
+
+---
+
+## 6. Persistencia, Copias de Seguridad y Restauración
+
+MetaStudio utiliza dos volúmenes Docker gestionados:
+
+| Volumen | Ruta interna | Contenido | ¿Requiere backup? |
+| --- | --- | --- | --- |
+| `metastudio_data` | `/app/backend/data` | Etiquetas persistentes por canción (`track_tags.json`) y catálogo de etiquetas personalizadas (`custom_tags.json`). | **Sí (persistente)** |
+| `metastudio_tmp` | `/app/backend/tmp` | Sesiones temporales, carátulas subidas, MP3 descargados y ZIPs generados. | No (efímero) |
+
+### Crear copia de seguridad de `metastudio_data` (sin detener el servicio)
+
+```bash
+mkdir -p /opt/docker/backups/metastudio
+docker run --rm \
+  -v metastudio_metastudio_data:/data:ro \
+  -v /opt/docker/backups/metastudio:/backup \
+  alpine:3.21 \
+  tar -czf "/backup/metastudio-data-$(date +%Y%m%d-%H%M%S).tar.gz" -C /data .
+```
+
+### Restaurar copia de seguridad
+
+```bash
+cd /opt/docker/apps/MetaStudio
+docker compose -f docker-compose.prod.yml stop backend
+
+docker run --rm \
+  -v metastudio_metastudio_data:/data \
+  -v /opt/docker/backups/metastudio:/backup:ro \
+  alpine:3.21 \
+  sh -c 'rm -rf /data/* && tar -xzf /backup/<archivo-backup>.tar.gz -C /data'
+
+docker compose -f docker-compose.prod.yml start backend
+```
+
+*(También conviene respaldar `/opt/docker/apps/MetaStudio/.env` en un lugar seguro fuera de Git).*
+
+---
+
+## 7. Ejecución en Desarrollo Local con Docker (`docker-compose.yml`)
+
+Para desarrollo y pruebas locales compilando los Dockerfiles desde el código fuente (exponiendo frontend en `8080` y backend/Swagger en `8000`):
+
+```bash
+# Linux / macOS (elige primer puerto libre si 8080/8000 están ocupados y lo mantiene fijo entre rebuilds)
 ./scripts/docker-up.sh
 
-# Para actualizar yt-dlp sin caché:
-docker compose build --no-cache backend && ./scripts/docker-up.sh --no-build
+# Windows PowerShell
+.\scripts\docker-up.ps1
+
+# O directamente con Docker Compose
+docker compose up --build -d
+```
+
+Ejecutar linter y tests dentro del contenedor backend local:
+
+```bash
+docker compose exec backend ruff check backend
+docker compose exec backend pytest backend/tests/ -v
 ```

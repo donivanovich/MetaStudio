@@ -108,17 +108,57 @@ Para no simular compatibilidad inexistente y respetar DRM y términos de servici
 | Orquestador y cola | Procesamiento lazy, cola de descarga, SSE, generador ZIP | `backend/workers/download_manager.py` |
 | Endpoints REST & SSE | Rutas organizadas `/api/v1/*` | `backend/api/` |
 | Frontend SPA | Interfaz de 3 columnas, reproductor, editor, fuentes, cola | `frontend/src/` |
-| Contenedor Backend | Imagen Python 3.12 + FFmpeg nativo, usuario no-root y healthcheck | `backend/Dockerfile` |
-| Contenedor Frontend & Proxy | Build multi-stage Node 22 → Nginx 1.27 Alpine con soporte SSE y proxy `/api/` | `frontend/Dockerfile`, `frontend/nginx.conf` |
-| Orquestación Docker | Red aislada, volúmenes persistentes (`data`/`tmp`) y arranque ordenado | `docker-compose.yml`, `.dockerignore`, `frontend/.dockerignore` |
+| Contenedor Backend | Imagen Python 3.12 + FFmpeg nativo, usuario no-root (`appuser`) y healthcheck | `backend/Dockerfile` |
+| Contenedor Frontend & Proxy | Build multi-stage Node 22 → Nginx 1.27 Alpine con cabeceras de seguridad, SSE y proxy `/api/` | `frontend/Dockerfile`, `frontend/nginx.conf` |
+| Orquestación Producción | Imágenes GHCR ARM64/AMD64, backend estrictamente interno, frontend `127.0.0.1:3200`, `no-new-privileges`, rotación de logs | `docker-compose.prod.yml` |
+| Orquestación Desarrollo | Build local con puertos configurables y lanzadores de puerto estable | `docker-compose.yml`, `scripts/docker-up.{sh,ps1}`, `.dockerignore` |
 
 ---
 
-## 6. Despliegue Contenerizado (Docker)
+## 6. Endpoints de la API (`/api/v1/*`)
 
-El despliegue oficial en contenedores desacopla el frontend y el backend mediante `docker-compose.yml`:
+Todas las peticiones del frontend se realizan al mismo origen (`/api/v1/*`) y Nginx las enruta internamente hacia `http://backend:8000`:
 
-- **`frontend` (Nginx 1.27 Alpine)**: Sirve los activos estáticos compilados por Vite y hace proxy inverso de `/api/*` hacia `http://backend:8000`. La ruta de streaming SSE (`/api/v1/jobs/<id>/events`) desactiva `proxy_buffering` y `gzip` con timeout extendido (`3600s`) para garantizar progreso en vivo sin cortes.
-- **`backend` (Python 3.12 Slim + FFmpeg)**: Ejecuta Uvicorn con un único worker asíncrono y cabeceras de proxy (`--proxy-headers`) como usuario no-root (`appuser`), montando los volúmenes `metastudio_data` (etiquetas persistentes) y `metastudio_tmp` (sesiones, descargas temporales y ZIPs).
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `GET` | `/api/v1/health` | Estado del servicio, verificación de FFmpeg, versión de `yt-dlp` y proveedores activos |
+| `POST` | `/api/v1/analyze` | Analiza una URL (canción o playlist con `extract_flat`) y crea sesión aislada (procesa solo pista 0) |
+| `GET` | `/api/v1/sessions/{sid}` | Obtiene el estado completo de la sesión y su cola de descarga |
+| `GET` | `/api/v1/sessions/{sid}/tracks/{tid}` | Obtiene el estado actual de una canción concreta |
+| `POST` | `/api/v1/sessions/{sid}/tracks/{tid}/process` | Procesamiento bajo demanda (*lazy loading*) de metadatos, carátulas y etiquetas (`?force=true` para reintento) |
+| `PATCH` | `/api/v1/sessions/{sid}/tracks/{tid}/metadata` | Actualiza los 4 campos ID3 permitidos (`title`, `artists`/`artists_text`, `album`, `selected_artwork_id`) |
+| `POST` | `/api/v1/sessions/{sid}/tracks/{tid}/apply-candidate` | Aplica todos o campos concretos (`title`, `artists`, `album`) de un proveedor normalizado |
+| `DELETE` | `/api/v1/sessions/{sid}/queue` | Limpia por completo la cola de descarga sin alterar la playlist original |
+| `DELETE` / `POST` | `/api/v1/sessions/{sid}/queue/{tid}` | Quita o devuelve una canción concreta en la cola de descarga |
+| `POST` | `/api/v1/sessions/{sid}/tracks/{tid}/artwork/search` | Re-ejecuta la búsqueda independiente de metadatos y carátulas con el título/artistas actuales |
+| `POST` | `/api/v1/sessions/{sid}/tracks/{tid}/artwork/upload` | Sube, valida con Pillow y almacena una carátula personalizada aislada por sesión |
+| `GET` | `/api/v1/sessions/{sid}/artwork/{filename}` | Sirve una carátula personalizada de la sesión |
+| `GET` / `POST` | `/api/v1/tags/catalog` | Consulta o amplía el catálogo versionado de etiquetas de idioma y estado de ánimo |
+| `GET` / `PUT` | `/api/v1/sessions/{sid}/tracks/{tid}/tags` | Consulta sugerencias o guarda etiquetas seleccionadas en `backend/data/track_tags.json` |
+| `POST` | `/api/v1/sessions/{sid}/tracks/{tid}/download` | Inicia trabajo asíncrono de descarga y exportación ID3v2.3 para una canción |
+| `POST` | `/api/v1/sessions/{sid}/download-playlist` | Inicia descarga controlada por concurrencia de toda la cola y empaquetado ZIP |
+| `GET` | `/api/v1/jobs/{job_id}` | Consulta snapshot del estado de un trabajo de descarga |
+| `POST` | `/api/v1/jobs/{job_id}/cancel` | Cancela un trabajo de descarga activo |
+| `GET` | `/api/v1/jobs/{job_id}/events` | Stream **Server-Sent Events (SSE)** en tiempo real (`text/event-stream`, sin buffering) |
+| `GET` | `/api/v1/sessions/{sid}/tracks/{tid}/file` | Descarga el MP3 exportado y etiquetado |
+| `GET` | `/api/v1/jobs/{job_id}/zip` | Descarga el archivo ZIP con toda la playlist exportada |
 
-Consulta la guía operativa completa en [docs/DOCKER.md](DOCKER.md).
+---
+
+## 7. Despliegue Contenerizado en Producción (Raspberry Pi 5 + Cloudflare Tunnel)
+
+MetaStudio se ejecuta en producción en `/opt/docker/apps/MetaStudio` sobre una **Raspberry Pi 5 (16 GB, Raspberry Pi OS Lite 64-bit)** utilizando `docker-compose.prod.yml`:
+
+```mermaid
+flowchart LR
+    Client["Navegador\nhttps://metastudio.donivanovich.dev"] -->|"HTTPS"| CF["Cloudflare Tunnel"]
+    CF -->|"http://127.0.0.1:3200"| Nginx["frontend (Nginx 1.27 Alpine)"]
+    Nginx -->|"Interno (metastudio-net)\nhttp://backend:8000"| API["backend (FastAPI + Uvicorn)"]
+    API --> Data[("metastudio_data\n/app/backend/data")]
+    API --> Tmp[("metastudio_tmp\n/app/backend/tmp")]
+```
+
+- **`frontend` (Nginx 1.27 Alpine)**: Publicado únicamente en `127.0.0.1:3200:80` para recibir tráfico desde Cloudflare Tunnel. Sirve la SPA compilada, añade cabeceras de seguridad, preserva `X-Forwarded-Proto` y `CF-Connecting-IP`, y hace proxy de `/api/*` y `/api/v1/jobs/<id>/events` (SSE sin buffering ni gzip, timeout `3600s`) hacia `http://backend:8000`.
+- **`backend` (Python 3.12 Slim + FFmpeg)**: **Sin puerto publicado en el host** (`expose: ["8000"]` interno en `metastudio-net`). Corre como usuario no-root (`appuser`), con `no-new-privileges:true`, rotación de logs y rate-limiting por IP real (respetando `CF-Connecting-IP` y `X-Forwarded-For`).
+
+Consulta la guía operativa completa (Cloudflare Tunnel, healthchecks, logs, diagnóstico, actualizaciones y backups) en [docs/DOCKER.md](DOCKER.md).

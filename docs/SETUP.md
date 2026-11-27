@@ -30,15 +30,15 @@ Variables principales en `.env`:
 | Variable | Descripción | Obligatoria |
 | --- | --- | --- |
 | `BACKEND_HOST` / `BACKEND_PORT` | Host y puerto del servidor FastAPI (`127.0.0.1:8000`) | No |
-| `CORS_ORIGINS` | Orígenes permitidos para el frontend (`http://localhost:5173`) | No |
-| `FFMPEG_PATH` | Ruta explícita al binario `ffmpeg` (vacío = autodetección) | No |
+| `CORS_ORIGINS` | Orígenes permitidos (`https://metastudio.donivanovich.dev,http://localhost:3200,http://localhost:5173`) | No |
+| `FFMPEG_PATH` | Ruta explícita al binario `ffmpeg` (vacío = autodetección; en Docker siempre vacío) | No |
 | `AUDIO_MP3_BITRATE` | Bitrate MP3 en kbps (`192`, `256`, `320`) | No |
 | `PLAYLIST_DOWNLOAD_CONCURRENCY` | Concurrencia controlada para playlists (`1`–`5`, por defecto `2`) | No |
 | `MUSICBRAINZ_USER_AGENT` | User-Agent requerido por la API de MusicBrainz | No |
 | `DISCOGS_TOKEN` | Personal Access Token de [Discogs Developers](https://www.discogs.com/settings/developers) | Opcional |
 | `VITE_API_BASE_URL` | URL base del backend cuando frontend y backend se despliegan por separado | No (en dev Vite usa proxy; en Docker Nginx usa proxy) |
-| `FRONTEND_PORT` | Puerto o rango público expuesto por Nginx en Docker Compose (`8080-8099`, salta puertos ocupados) | No (solo Docker) |
-| `BACKEND_HOST_PORT` | Puerto o rango público expuesto por FastAPI en Docker Compose (`8000-8019`, salta puertos ocupados) | No (solo Docker) |
+| `FRONTEND_PORT` | Puerto host expuesto por Nginx (`8080` en `docker-compose.yml` dev; `3200` en loopback en `docker-compose.prod.yml`) | No (solo Docker) |
+| `BACKEND_HOST_PORT` | Puerto host expuesto por FastAPI solo en desarrollo (`8000` en `docker-compose.yml`; en producción el backend es estrictamente interno) | No (solo Docker dev) |
 
 > **Nota:** **MusicBrainz**, **Deezer** e **iTunes / Apple Music** funcionan directamente sin claves API. Discogs se activa automáticamente al introducir su token en `.env` (nunca se expone al frontend).
 
