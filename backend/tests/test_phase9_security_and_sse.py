@@ -189,3 +189,27 @@ async def test_sse_stream_delivers_completion_event_and_persists_tags():
             assert len(events) >= 1
             assert events[-1]["status"] == "completed"
             assert events[-1]["files"][0]["file_name"] == "la_noche_de_anoche_bad_bunny.mp3"
+
+
+def test_rate_limiter_resolves_cloudflare_and_forwarded_client_ip():
+    from backend.main import RateLimitMiddleware
+
+    cf_scope = {
+        "type": "http",
+        "client": ("172.18.0.2", 54321),
+        "headers": [
+            (b"cf-connecting-ip", b"203.0.113.42"),
+            (b"x-forwarded-for", b"203.0.113.42, 172.18.0.1"),
+        ],
+    }
+    assert RateLimitMiddleware._resolve_client_ip(cf_scope) == "203.0.113.42"
+
+    xff_scope = {
+        "type": "http",
+        "client": ("172.18.0.2", 54321),
+        "headers": [(b"x-forwarded-for", b"198.51.100.7, 172.18.0.1")],
+    }
+    assert RateLimitMiddleware._resolve_client_ip(xff_scope) == "198.51.100.7"
+
+    direct_scope = {"type": "http", "client": ("127.0.0.1", 50000), "headers": []}
+    assert RateLimitMiddleware._resolve_client_ip(direct_scope) == "127.0.0.1"

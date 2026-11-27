@@ -28,19 +28,36 @@ logging.basicConfig(
 
 
 class RateLimitMiddleware:
-    """Pure ASGI per-IP sliding-window rate limiter (SSE-safe, zero buffering)."""
+    """Pure ASGI per-IP sliding-window rate limiter (SSE-safe, zero buffering, proxy/Cloudflare aware)."""
 
     def __init__(self, app: ASGIApp, max_requests_per_minute: int = 60) -> None:
         self.app = app
         self.max_requests_per_minute = max_requests_per_minute
         self._buckets: dict[str, deque[float]] = defaultdict(deque)
 
+    @staticmethod
+    def _resolve_client_ip(scope: Scope) -> str:
+        """Prefer Cloudflare/proxy client headers so visitors behind Cloudflare Tunnel do not share one bucket."""
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1").strip()
+            for k, v in (scope.get("headers") or [])
+        }
+        cf_ip = headers.get("cf-connecting-ip")
+        if cf_ip:
+            return cf_ip
+        xff = headers.get("x-forwarded-for")
+        if xff:
+            first_ip = xff.split(",", 1)[0].strip()
+            if first_ip:
+                return first_ip
+        client = scope.get("client")
+        return client[0] if client else "unknown"
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
             path: str = scope.get("path", "")
             if path.startswith("/api/") and path != "/api/v1/health":
-                client = scope.get("client")
-                client_ip = client[0] if client else "unknown"
+                client_ip = self._resolve_client_ip(scope)
                 now = time.monotonic()
                 bucket = self._buckets[client_ip]
                 while bucket and now - bucket[0] > 60.0:
@@ -57,6 +74,15 @@ class RateLimitMiddleware:
                     await response(scope, receive, send)
                     return
                 bucket.append(now)
+                # Prevent unbounded memory growth from stale IP buckets on long-running servers
+                if len(self._buckets) > 1024:
+                    stale_keys = [
+                        ip
+                        for ip, q in self._buckets.items()
+                        if not q or now - q[-1] > 60.0
+                    ]
+                    for ip in stale_keys:
+                        self._buckets.pop(ip, None)
         await self.app(scope, receive, send)
 
 
