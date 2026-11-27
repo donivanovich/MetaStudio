@@ -1,0 +1,165 @@
+name: CD — Deploy to Raspberry Pi (SSH)
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Rama o tag de Git a desplegar"
+        required: true
+        default: "main"
+        type: string
+  workflow_run:
+    workflows:
+      - "CD — Publish Docker Images (GHCR)"
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-raspberry-pi
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy via SSH with Health Check & Rollback
+    runs-on: ubuntu-latest
+    environment: production
+    # Runs manually via workflow_dispatch, or automatically after GHCR publish ONLY if RPI_AUTO_DEPLOY == 'true'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && vars.RPI_AUTO_DEPLOY == 'true')
+
+    steps:
+      - name: Validate required SSH secrets and input ref
+        env:
+          RPI_HOST: ${{ secrets.RPI_HOST }}
+          RPI_USER: ${{ secrets.RPI_USER }}
+          RPI_SSH_KEY: ${{ secrets.RPI_SSH_KEY }}
+          RPI_APP_DIR: ${{ secrets.RPI_APP_DIR }}
+          TARGET_REF: ${{ inputs.git_ref || github.event.workflow_run.head_sha || 'main' }}
+        run: |
+          missing=()
+          [[ -z "${RPI_HOST}" ]] && missing+=("RPI_HOST")
+          [[ -z "${RPI_USER}" ]] && missing+=("RPI_USER")
+          [[ -z "${RPI_SSH_KEY}" ]] && missing+=("RPI_SSH_KEY")
+          [[ -z "${RPI_APP_DIR}" ]] && missing+=("RPI_APP_DIR")
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Faltan secretos obligatorios en el entorno 'production': ${missing[*]}"
+            exit 1
+          fi
+          if [[ ! "${TARGET_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::Referencia Git inválida: ${TARGET_REF}"
+            exit 1
+          fi
+          if [[ ! "${RPI_APP_DIR}" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::RPI_APP_DIR debe ser una ruta absoluta segura (ej. /home/pi/MetaStudio)."
+            exit 1
+          fi
+
+      - name: Configure ephemeral SSH client
+        env:
+          RPI_HOST: ${{ secrets.RPI_HOST }}
+          RPI_PORT: ${{ secrets.RPI_PORT }}
+          RPI_SSH_KEY: ${{ secrets.RPI_SSH_KEY }}
+          RPI_SSH_KNOWN_HOSTS: ${{ secrets.RPI_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/ssh"
+          chmod 700 "${RUNNER_TEMP}/ssh"
+          printf '%s\n' "${RPI_SSH_KEY}" > "${RUNNER_TEMP}/ssh/deploy_key"
+          chmod 600 "${RUNNER_TEMP}/ssh/deploy_key"
+
+          PORT="${RPI_PORT:-22}"
+          if [[ -n "${RPI_SSH_KNOWN_HOSTS}" ]]; then
+            printf '%s\n' "${RPI_SSH_KNOWN_HOSTS}" > "${RUNNER_TEMP}/ssh/known_hosts"
+            chmod 644 "${RUNNER_TEMP}/ssh/known_hosts"
+            echo "SSH_STRICT_OPT=yes" >> "${GITHUB_ENV}"
+          else
+            ssh-keyscan -p "${PORT}" -H "${RPI_HOST}" > "${RUNNER_TEMP}/ssh/known_hosts" 2>/dev/null || true
+            chmod 644 "${RUNNER_TEMP}/ssh/known_hosts"
+            echo "SSH_STRICT_OPT=accept-new" >> "${GITHUB_ENV}"
+          fi
+          echo "SSH_PORT=${PORT}" >> "${GITHUB_ENV}"
+
+      - name: Deploy and verify health (with automatic rollback)
+        env:
+          RPI_HOST: ${{ secrets.RPI_HOST }}
+          RPI_USER: ${{ secrets.RPI_USER }}
+          RPI_SSH_KEY: ${{ secrets.RPI_SSH_KEY }}
+          RPI_APP_DIR: ${{ secrets.RPI_APP_DIR }}
+          TARGET_REF: ${{ inputs.git_ref || github.event.workflow_run.head_sha || 'main' }}
+        run: |
+          ssh -i "${RUNNER_TEMP}/ssh/deploy_key" \
+              -p "${SSH_PORT}" \
+              -o UserKnownHostsFile="${RUNNER_TEMP}/ssh/known_hosts" \
+              -o StrictHostKeyChecking="${SSH_STRICT_OPT}" \
+              -o BatchMode=yes \
+              -o ConnectTimeout=15 \
+              "${RPI_USER}@${RPI_HOST}" \
+              bash -s -- "${RPI_APP_DIR}" "${TARGET_REF}" <<'EOF'
+          set -euo pipefail
+          APP_DIR="$1"
+          TARGET_REF="$2"
+
+          if [[ ! -d "${APP_DIR}/.git" ]]; then
+            echo "Error: ${APP_DIR} no contiene un repositorio Git válido de MetaStudio." >&2
+            exit 1
+          fi
+
+          cd "${APP_DIR}"
+          PREV_SHA="$(git rev-parse HEAD)"
+          echo "Current deployed commit: ${PREV_SHA}"
+
+          verify_health() {
+            local fe_port
+            fe_port="$(docker compose port frontend 80 2>/dev/null | awk -F: '{print $NF}')"
+            if [[ -z "${fe_port}" ]]; then
+              return 1
+            fi
+            for _ in $(seq 1 30); do
+              if curl -fsS "http://127.0.0.1:${fe_port}/healthz" >/dev/null && \
+                 curl -fsS "http://127.0.0.1:${fe_port}/api/v1/health" | grep -q '"status":"ok"'; then
+                echo "Health check OK on port ${fe_port}."
+                return 0
+              fi
+              sleep 2
+            done
+            return 1
+          }
+
+          rollback() {
+            echo "Deploy failed. Rolling back to previous commit ${PREV_SHA}..." >&2
+            git checkout --quiet "${PREV_SHA}"
+            ./scripts/docker-up.sh || docker compose up --build -d
+            if verify_health; then
+              echo "Rollback to ${PREV_SHA} verified healthy." >&2
+            else
+              echo "Rollback completed but health check still failing; manual inspection required." >&2
+            fi
+          }
+
+          git fetch --prune origin
+          if git show-ref --verify --quiet "refs/remotes/origin/${TARGET_REF}"; then
+            git checkout --quiet "${TARGET_REF}"
+            git pull --ff-only origin "${TARGET_REF}"
+          else
+            git checkout --quiet "${TARGET_REF}"
+          fi
+
+          NEW_SHA="$(git rev-parse HEAD)"
+          echo "Deploying commit: ${NEW_SHA}"
+
+          if ! ./scripts/docker-up.sh || ! verify_health; then
+            rollback
+            exit 1
+          fi
+
+          echo "Deployment of ${NEW_SHA} succeeded and passed all health checks."
+          EOF
+
+      - name: Clean up ephemeral SSH key
+        if: always()
+        run: rm -rf "${RUNNER_TEMP}/ssh"

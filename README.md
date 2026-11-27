@@ -60,6 +60,47 @@ Abre `http://localhost:5173` en tu navegador.
 
 ---
 
+## CI/CD (GitHub Actions)
+
+El repositorio incluye un pipeline automatizado de integración continua, entrega de imágenes Docker multi-arquitectura y despliegue opcional por SSH en servidor propio / Raspberry Pi, además de mantenimiento semanal con **Dependabot** (`.github/dependabot.yml`).
+
+### Workflows disponibles
+
+| Workflow | Archivo | Cuándo se ejecuta | Qué valida / hace |
+| --- | --- | --- | --- |
+| **CI** | `.github/workflows/ci.yml` | `push` a `main`, `pull_request` hacia `main` y manual (`workflow_dispatch`) | **Backend** (Python 3.12, FFmpeg nativo, `ruff check backend`, `pytest backend/tests/ -v`), **Frontend** (Node 22, `npm ci`, `npm run lint` [`tsc --noEmit`], `npm run build`, `npm audit --omit=dev --audit-level=high`), **Docker** (`docker compose config`, build de ambas imágenes con caché Buildx y smoke test en vivo contra `/healthz` y `/api/v1/health`), y **Scripts** (`shellcheck scripts/docker-up.sh`). |
+| **CD — Publish Docker Images (GHCR)** | `.github/workflows/cd-ghcr.yml` | Al completarse con éxito `CI` en `push` a `main`, al subir tags SemVer (`v*.*.*`) y manual | Construye y publica imágenes multi-arquitectura (`linux/amd64`, `linux/arm64`) en **GitHub Container Registry** (`ghcr.io/<owner>/metastudio-backend` y `ghcr.io/<owner>/metastudio-frontend`) con tags trazables (`sha-<commit>`, `main`, versión SemVer y `latest`). |
+| **CD — Deploy to Raspberry Pi (SSH)** | `.github/workflows/cd-raspberry-pi.yml` | Manual (`workflow_dispatch`) o automático tras `CD — Publish Docker Images (GHCR)` **solo si** la variable `RPI_AUTO_DEPLOY=true` | Conecta por SSH a la Raspberry Pi / VPS, actualiza al commit verificado, ejecuta `./scripts/docker-up.sh`, comprueba `/healthz` y `/api/v1/health`, y realiza **rollback automático** al commit anterior si algo falla. |
+
+### Secretos y variables de GitHub
+
+- **CI y publicación en GHCR**: No requieren secretos manuales (utilizan el `GITHUB_TOKEN` efímero con permisos mínimos `contents: read` y `packages: write` solo en el job de publicación).
+- **Despliegue en Raspberry Pi / VPS (`environment: production`)**: Configura estos secretos en **Settings → Environments → `production`** (o en **Settings → Secrets and variables → Actions**):
+
+| Tipo | Nombre | Obligatorio | Descripción |
+| --- | --- | --- | --- |
+| Secret | `RPI_HOST` | Sí (para SSH CD) | IP o dominio accesible por SSH de la Raspberry Pi / VPS |
+| Secret | `RPI_USER` | Sí (para SSH CD) | Usuario SSH con acceso al grupo `docker` |
+| Secret | `RPI_SSH_KEY` | Sí (para SSH CD) | Clave privada SSH dedicada al despliegue (sin passphrase) |
+| Secret | `RPI_APP_DIR` | Sí (para SSH CD) | Ruta absoluta del clon en la Pi (p. ej. `/home/pi/MetaStudio`) |
+| Secret | `RPI_PORT` | Opcional | Puerto SSH (por defecto `22`) |
+| Secret | `RPI_SSH_KNOWN_HOSTS` | Recomendado | Salida de `ssh-keyscan -p <puerto> -H <host>` para verificación estricta de host |
+| Variable | `RPI_AUTO_DEPLOY` | Opcional | Fijar a `true` para desplegar automáticamente tras cada publicación en GHCR (si no existe o es distinto de `true`, solo corre bajo disparo manual) |
+
+### Cómo consultar ejecuciones y actuar ante fallos
+
+1. Abre la pestaña **Actions** del repositorio en GitHub para ver el estado por workflow y job (`backend`, `frontend`, `docker`, `scripts`).
+2. Si falla un job de **CI**:
+   - **Backend (`ruff` o `pytest`)**: reproduce localmente con `ruff check backend` y `pytest backend/tests/ -v`.
+   - **Frontend (`lint`, `build` o `npm audit`)**: reproduce con `npm --prefix frontend ci`, `npm --prefix frontend run lint` y `npm --prefix frontend run build`.
+   - **Docker (build o smoke test)**: revisa los logs volcados automáticamente por el step y prueba `docker compose config` y `docker compose up --build -d`.
+   - **Scripts (`shellcheck`)**: revisa las advertencias de `scripts/docker-up.sh`.
+3. Si falla **CD — Deploy to Raspberry Pi (SSH)**:
+   - El workflow intenta automáticamente volver al commit previo (`PREV_SHA`) y verificar `/healthz` + `/api/v1/health`.
+   - Revisa el resumen del job en **Actions** y, si hace falta, conéctate por SSH a la Pi para consultar `docker compose ps` y `docker compose logs --tail=100`.
+
+---
+
 ## Documentación del Proyecto
 
 - [Guía de despliegue con Docker](docs/DOCKER.md)

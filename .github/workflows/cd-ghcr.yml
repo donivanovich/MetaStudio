@@ -1,0 +1,99 @@
+name: CD — Publish Docker Images (GHCR)
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-ghcr-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    name: Build & Push ${{ matrix.service }} (amd64 + arm64)
+    runs-on: ubuntu-latest
+    # Publish only when CI succeeded on a push to main, on a SemVer tag push, or on manual dispatch
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            context: .
+            dockerfile: backend/Dockerfile
+            build_args: ""
+          - service: frontend
+            context: ./frontend
+            dockerfile: frontend/Dockerfile
+            build_args: "VITE_API_BASE_URL="
+
+    steps:
+      - name: Resolve target commit SHA
+        id: target
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+          echo "sha=${SHA}" >> "${GITHUB_OUTPUT}"
+          echo "short_sha=${SHA:0:7}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout verified commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+
+      - name: Set up QEMU (ARM64 emulation for Raspberry Pi)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata & tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/metastudio-${{ matrix.service }}
+          tags: |
+            type=raw,value=sha-${{ steps.target.outputs.short_sha }}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.build_args }}
+          cache-from: type=gha,scope=ghcr-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=ghcr-${{ matrix.service }}

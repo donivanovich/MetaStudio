@@ -27,11 +27,14 @@ get_own_port() {
 is_port_in_use() {
   local port="$1"
   if command -v ss >/dev/null 2>&1; then
-    ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${port}$" && return 0 || return 1
+    ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)${port}$"
+    return $?
   elif command -v lsof >/dev/null 2>&1; then
-    lsof -iTCP:"${port}" -sTCP:LISTEN -Pn >/dev/null 2>&1 && return 0 || return 1
+    lsof -iTCP:"${port}" -sTCP:LISTEN -Pn >/dev/null 2>&1
+    return $?
   elif command -v python3 >/dev/null 2>&1; then
-    python3 -c "import socket, sys; s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); rc = s.connect_ex(('127.0.0.1', ${port})); s.close(); sys.exit(0 if rc == 0 else 1)" && return 0 || return 1
+    python3 -c "import socket, sys; s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); rc = s.connect_ex(('127.0.0.1', int(sys.argv[1]))); s.close(); sys.exit(0 if rc == 0 else 1)" "${port}"
+    return $?
   fi
   return 1
 }
